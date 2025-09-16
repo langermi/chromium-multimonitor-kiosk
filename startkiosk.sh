@@ -4,6 +4,29 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 source "$SCRIPT_DIR/config.sh"
 
+# Einheitliches Logging: tägliches Logfile, Debug-Flag und STDERR-Redirect
+mkdir -p "$LOGDIR"
+# tägliches Logfile-Naming (kiosk-YYYY-MM-DD.log)
+LOGFILE="${LOGDIR}/kiosk-$(date '+%F').log"
+# Debug per ENV aktivierbar: setze LOG_DEBUG=1 um Debug-Logging zu aktivieren
+LOG_DEBUG="${LOG_DEBUG:-0}"
+# STDERR umleiten: Jede Zeile wird getaggt und in das tägliche Log geschrieben
+exec 2> >(
+  while IFS= read -r line; do
+    ts="$(date '+%F %T')"
+    if [ "${LOG_FORMAT:-text}" = "json" ]; then
+  # Anführungszeichen und Backslashes für JSON escapen
+      esc=$(printf '%s' "$line" | sed -e 's/\\/\\\\/g' -e 's/"/\\\"/g')
+      printf '{"ts":"%s","level":"ERROR","msg":"%s"}\n' "$ts" "$esc" >>"$LOGFILE"
+    else
+      printf '%s [ERROR] %s\n' "$ts" "$line" >>"$LOGFILE"
+    fi
+    if [ "${LOG_TO_JOURNAL:-false}" = true ]; then
+      printf '%s\n' "$line" | logger -t "${LOG_TAG:-kiosk}" -p user.err
+    fi
+  done
+)
+
 # Alte Chromium-Prozesse beenden
 pkill -x chromium chromium-browser 2>/dev/null || true
 sleep 1
@@ -19,31 +42,47 @@ check_prereqs() {
   local missing=0
   for cmd in xdotool xrandr gsettings chromium curl xprintidle; do
     if ! command -v "$cmd" &>/dev/null; then
-      echo "Fehler: '$cmd' nicht gefunden. Bitte installieren." >&2
+      log_error "Fehler: '$cmd' nicht gefunden. Bitte installieren."
       missing=1
     fi
   done
   if [ "${XDG_SESSION_TYPE,,}" = "wayland" ]; then
-    echo "Fehler: Wayland läuft. Bitte unter X11 starten." >&2
+    log_error "Fehler: Wayland läuft. Bitte unter X11 starten."
     missing=1
   fi
   if ! gsettings get org.gnome.shell enabled-extensions \
        | grep -qE "nooverview|no-overview"; then
-    echo "Warnung: 'No overview at startup' nicht aktiviert oder Installiert." >&2
+    log_warn "GNOME Extension 'No overview at startup' nicht aktiviert oder installiert."
   fi
-  [ "$missing" -ne 0 ] && exit 1
+  if [ "$missing" -ne 0 ]; then
+    log_error "Abbruch aufgrund fehlender Abhängigkeiten."
+    exit 1
+  fi
 
-      if ! touch "$SCRIPT_DIR/test" 2>/dev/null; then
-        echo "Fehler: Keine Schreibrechte in $LOGDIR"
-        exit 1
-      fi
-    if [[ ! "$RESTART_TIME" =~ ^([0-1][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
-        echo "Ungültiges RESTART_TIME Format: $RESTART_TIME" >&2
-        exit 1
+
+  if [[ ! "$RESTART_TIME" =~ ^([0-1][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+    log_error "Ungültiges RESTART_TIME Format: $RESTART_TIME"
+    exit 1
+  fi
+  if [[ ! "$POWEROFF_TIME" =~ ^([0-1][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+    log_error "Ungültiges POWEROFF_TIME Format: $POWEROFF_TIME"
+    exit 1
+  fi
+
+  # Prüfe Rechte für Neustart / Poweroff (nur notwendig, wenn aktiviert)
+  if [ "${ENABLE_RESTART:-true}" = "true" ]; then
+    if ! can_execute_reboot_or_poweroff; then
+      log_error "Neustart ist aktiviert (ENABLE_RESTART=true), aber der Benutzer hat keine ausreichenden Rechte für 'reboot' oder 'systemctl reboot'."
+      exit 1
     fi
-  
+  fi
+  if [ "${ENABLE_POWEROFF:-true}" = "true" ]; then
+    if ! can_execute_reboot_or_poweroff; then
+      log_error "Poweroff ist aktiviert (ENABLE_POWEROFF=true), aber der Benutzer hat keine ausreichenden Rechte für 'poweroff' oder 'systemctl poweroff'."
+      exit 1
+    fi
+  fi
 }
-check_prereqs
 
 # Testmodus aktivieren
 if [[ "$1" == "--test" ]]; then
@@ -51,9 +90,132 @@ if [[ "$1" == "--test" ]]; then
   echo "Testmodus aktiviert – Chromium start Übersprungen"
 fi
 
-# Logging-Funktionen
-log()       { echo "[$(date '+%F %T')] $*"    >> "$LOGFILE"; }
-log_error() { echo "[$(date '+%F %T')] [ERROR] $*" >> "$ERRORLOG"; }
+# Logging-Funktionen (ein Logfile, mit Level-Tags)
+# ANSI-Farbcodes für die Konsole
+_COLOR_RESET="\e[0m"
+_COLOR_INFO="\e[32m"   # grün
+_COLOR_WARN="\e[33m"   # gelb
+_COLOR_ERROR="\e[31m"  # rot
+
+# Hilfsfunktionen
+json_escape() {
+  # Backslashes und doppelte Anführungszeichen für JSON-Ausgabe escapen
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\\"/g'
+}
+
+rotate_by_size() {
+  local file="$1"
+  local max_size=${MAX_LOG_SIZE:-$((10*1024*1024))}
+  local backups=${LOG_MAX_BACKUPS:-5}
+  [ -f "$file" ] || return 0
+  local size
+  if size=$(stat -c%s "$file" 2>/dev/null); then :; else size=$(stat -f%z "$file" 2>/dev/null); fi
+  [ -n "$size" ] || return 0
+  if [ "$size" -le "$max_size" ]; then return 0; fi
+  for ((i=backups-1;i>=1;i--)); do
+    if [ -f "${file}.$i" ]; then mv "${file}.$i" "${file}.$((i+1))"; fi
+  done
+  mv "$file" "${file}.1"
+  if [ -f "${file}.$((backups+1))" ]; then rm -f "${file}.$((backups+1))"; fi
+}
+
+# Prüfe, ob der aktuelle Benutzer Neustart/Poweroff ohne interaktives Passwort ausführen kann
+can_execute_reboot_or_poweroff() {
+  # Bevorzuge systemctl, falls verfügbar
+  if command -v systemctl &>/dev/null; then
+    # Prüfe, ob systemctl --user funktioniert (Hinweis: abhängig von Systemkonfiguration)
+    if systemctl --user &>/dev/null; then
+      return 0
+    fi
+  fi
+  # Teste mit sudo -n (non-interactive), ob sudo ohne Passwort möglich ist
+  if sudo -n true 2>/dev/null; then
+    # sudo ohne Passwort möglich
+    return 0
+  fi
+  # Prüfe explizit, ob spezielle Befehle per sudo ohne Passwort ausführbar sind
+  if sudo -n systemctl reboot &>/dev/null; then
+    return 0
+  fi
+  if sudo -n /sbin/reboot &>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+log() {
+  local msg="[$(date '+%F %T')] [INFO] $*"
+  echo -e "${_COLOR_INFO}${msg}${_COLOR_RESET}" >&1
+  rotate_by_size "$LOGFILE"
+  local ts="$(date '+%F %T')"
+  local text="$*"
+  local esc
+  esc=$(json_escape "$text")
+  if [ "${LOG_FORMAT:-text}" = "json" ]; then
+    printf '{"ts":"%s","level":"INFO","msg":"%s"}\n' "$ts" "$esc" >>"$LOGFILE"
+  else
+    printf '%s [INFO] %s\n' "$ts" "$text" >>"$LOGFILE"
+  fi
+  if [ "${LOG_TO_JOURNAL:-false}" = true ]; then
+    printf '%s\n' "[$ts] [INFO] $text" | logger -t "${LOG_TAG:-kiosk}" -p user.info
+  fi
+}
+
+log_warn() {
+  local msg="[$(date '+%F %T')] [WARN] $*"
+  echo -e "${_COLOR_WARN}${msg}${_COLOR_RESET}" >&1
+  rotate_by_size "$LOGFILE"
+  local ts="$(date '+%F %T')"
+  local text="$*"
+  local esc
+  esc=$(json_escape "$text")
+  if [ "${LOG_FORMAT:-text}" = "json" ]; then
+    printf '{"ts":"%s","level":"WARN","msg":"%s"}\n' "$ts" "$esc" >>"$LOGFILE"
+  else
+    printf '%s [WARN] %s\n' "$ts" "$text" >>"$LOGFILE"
+  fi
+  if [ "${LOG_TO_JOURNAL:-false}" = true ]; then
+    printf '%s\n' "[$ts] [WARN] $text" | logger -t "${LOG_TAG:-kiosk}" -p user.warn
+  fi
+}
+
+log_error() {
+  local msg="[$(date '+%F %T')] [ERROR] $*"
+  echo -e "${_COLOR_ERROR}${msg}${_COLOR_RESET}" >&2
+  rotate_by_size "$LOGFILE"
+  local ts="$(date '+%F %T')"
+  local text="$*"
+  local esc
+  esc=$(json_escape "$text")
+  if [ "${LOG_FORMAT:-text}" = "json" ]; then
+    printf '{"ts":"%s","level":"ERROR","msg":"%s"}\n' "$ts" "$esc" >>"$LOGFILE"
+  else
+    printf '%s [ERROR] %s\n' "$ts" "$text" >>"$LOGFILE"
+  fi
+  if [ "${LOG_TO_JOURNAL:-false}" = true ]; then
+    printf '%s\n' "[$ts] [ERROR] $text" | logger -t "${LOG_TAG:-kiosk}" -p user.err
+  fi
+}
+
+# Debug-Logging (nur wenn LOG_DEBUG=1)
+log_debug() {
+  [ "$LOG_DEBUG" -eq 1 ] || return 0
+  local msg="[$(date '+%F %T')] [DEBUG] $*"
+  echo -e "\e[36m${msg}${_COLOR_RESET}" >&1
+  rotate_by_size "$LOGFILE"
+  local ts="$(date '+%F %T')"
+  local text="$*"
+  local esc
+  esc=$(json_escape "$text")
+  if [ "${LOG_FORMAT:-text}" = "json" ]; then
+    printf '{"ts":"%s","level":"DEBUG","msg":"%s"}\n' "$ts" "$esc" >>"$LOGFILE"
+  else
+    printf '%s [DEBUG] %s\n' "$ts" "$text" >>"$LOGFILE"
+  fi
+  if [ "${LOG_TO_JOURNAL:-false}" = true ]; then
+    printf '%s\n' "[$ts] [DEBUG] $text" | logger -t "${LOG_TAG:-kiosk}" -p user.debug
+  fi
+}
 
 # URLs aus der Konfiguration validieren
 validate_urls() {
@@ -90,28 +252,38 @@ rotate_logs() {
 }
 rotate_logs
 log "=== Kiosk-Skript gestartet ==="
+log_debug "CONFIG: CHECK_INTERVAL=$CHECK_INTERVAL PAGE_REFRESH_INTERVAL=$PAGE_REFRESH_INTERVAL RESTART_TIME=$RESTART_TIME POWEROFF_TIME=$POWEROFF_TIME LOG_DEBUG=$LOG_DEBUG"
+log "Logging in $LOGFILE"
+
+# Prüfe Abhängigkeiten und Rechte jetzt, damit Meldungen ins Log gehen
+check_prereqs
 
 # Funktion für Systemneustart
 restart_system() {
   log "Automatischer Neustart um $RESTART_TIME ausgelöst"
-  sudo shutdown -r now
+  sudo systemctl reboot
+}
+
+poweroff_system() {
+  log "Automatischer Poweroff um $POWEROFF_TIME ausgelöst"
+  sudo systemctl poweroff
 }
 
 # Bildschirmschoner und Notifications deaktivieren
 xset s off            # Bildschirmschoner ausschalten
 xset -dpms            # Energiesparfunktionen deaktivieren
 xset s noblank        # Bildschirm nicht ausblenden
-gsettings set org.gnome.desktop.session idle-delay 0 2>>"$ERRORLOG"
-gsettings set org.gnome.desktop.screensaver idle-activation-enabled false 2>>"$ERRORLOG"
-gsettings set org.gnome.desktop.screensaver lock-enabled false 2>>"$ERRORLOG"
-gsettings set org.gnome.desktop.notifications show-banners false 2>>"$ERRORLOG"
-
+  gsettings set org.gnome.desktop.session idle-delay 0 2>>"$LOGFILE"
+  gsettings set org.gnome.desktop.screensaver idle-activation-enabled false 2>>"$LOGFILE"
+  gsettings set org.gnome.desktop.screensaver lock-enabled false 2>>"$LOGFILE"
+  gsettings set org.gnome.desktop.notifications show-banners false 2>>"$LOGFILE"
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing' 2>>"$LOGFILE"
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing' 2>>"$LOGFILE"
 # Clean-exit & Übersetzer in Chromium prefs abschalten
 PREFS="$CHROMIUM_CONFIG/Default/Preferences"
-if [ -f "$PREFS" ]; then
-  sed -i 's/"exited_cleanly":false/"exited_cleanly":true/' "$PREFS" 2>>"$ERRORLOG"
-  sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/'  "$PREFS" 2>>"$ERRORLOG"
-  sed -i 's/"translate":{"enabled":true}/"translate":{"enabled":false}/' "$PREFS" 2>>"$ERRORLOG"
+  if [ -f "$PREFS" ]; then
+  sed -i 's/"exited_cleanly":false/"exited_cleanly":true/' "$PREFS" 2>>"$LOGFILE"
+  sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/'  "$PREFS" 2>>"$LOGFILE"
 fi
 
 # URLs einlesen
@@ -196,7 +368,7 @@ for idx in "${!MON_LIST[@]}"; do
   WS_DIR["$m"]=$ws
   mkdir -p "$ws"
   if [ -d "$CHROMIUM_CONFIG" ]; then
-    cp -r "$CHROMIUM_CONFIG/." "$ws/" 2>>"$ERRORLOG" \
+    cp -r "$CHROMIUM_CONFIG/." "$ws/" 2>>"$LOGFILE" \
       || log_error "Kopie nach $ws fehlgeschlagen"
   fi
   RESTART_COUNT["$m"]=0
@@ -223,7 +395,7 @@ start_chromium() {
     --app="$url" \
     >>"$LOGFILE" 2> >(
       grep -v -E 'blink\.mojom\.WidgetHost|registration_request\.cc' \
-      >>"$ERRORLOG"
+      >>"$LOGFILE"
     ) &
 
   MON_PID["$m"]=$!
@@ -256,13 +428,17 @@ done
 
 # Watchdog-Schleife
 last_refresh_time=$(date +%s)
+# letzter timestamp wird verwendet somit werden auch verpasste Events erkannt
+prev_check_time=$(date +%s)
 while true; do
   sleep "$CHECK_INTERVAL"
 
-  # Periodischer Seiten-Refresh bei Inaktivität
-if [ "${PAGE_REFRESH_INTERVAL:-0}" -gt 0 ]; then
-    now=$(date +%s)
-    if (( now - last_refresh_time > PAGE_REFRESH_INTERVAL )); then
+  # Aktuelle Zeit einmal ermitteln (für Refresh + Zeit-Trigger)
+  now=$(date +%s)
+  # Sekunden seit Mitternacht (für robuste Zeitvergleichs-Logik)
+  prev_mod=$(( prev_check_time % 86400 ))
+  now_mod=$(( now % 86400 ))
+  if (( now - last_refresh_time > PAGE_REFRESH_INTERVAL )); then
       # Inaktivitätsdauer auslesen (in Sekunden) mit xprintidle
       if command -v xprintidle &>/dev/null; then
         idle_time_ms=$(xprintidle)
@@ -285,18 +461,55 @@ if [ "${PAGE_REFRESH_INTERVAL:-0}" -gt 0 ]; then
             log "Refresh für Monitor $m übersprungen (deaktiviert)."
           fi
         done
-        last_refresh_time=$now # Zeit nur nach erfolgreichem Refresh zurücksetzen
+  # Aligniere last_refresh_time so, dass die nächsten Refreshes wieder
+  # im korrekten Rhythmus erfolgen, auch wenn mehrere Intervalle verpasst wurden.
+  elapsed=$(( now - last_refresh_time ))
+  # Restzeit bis zum nächsten vollen Intervall
+  remainder=$(( elapsed % PAGE_REFRESH_INTERVAL ))
+  # Setze last_refresh_time so, dass next expected = now + (PAGE_REFRESH_INTERVAL - remainder)
+  last_refresh_time=$(( now - remainder ))
       else
         log "Refresh übersprungen. System ist aktiv (Inaktivität: $idle_seconds s)."
       fi
     fi
   fi  # Zeit prüfen und ggf. Neustart auslösen
-  current_time=$(date '+%H:%M')
-  if [ "${ENABLE_RESTART:-true}" = "true" ] && [ "$current_time" = "$RESTART_TIME" ]; then
-    log "Initiire restart $current_time"
-    restart_system 2>>"$ERRORLOG" || log_error "Neustart fehlgeschlagen"
-    exit 0
+  # Prüfe, ob die konfigurierten Zeiten (Restart / Poweroff) zwischen prev_check_time und now lagen.
+  # Vergleiche auf Sekunden-since-midnight, das vermeidet verpasste Trigger bei großen CHECK_INTERVAL.
+  if [ "${ENABLE_RESTART:-true}" = "true" ]; then
+    target_restart_mod=$(awk -F: '{print ($1*3600)+($2*60)}' <<<"$RESTART_TIME")
+    # Normalfall (kein Tageswechsel zwischen den Zeitpunkten)
+    if [ "$now_mod" -ge "$prev_mod" ]; then
+      if [ "$target_restart_mod" -gt "$prev_mod" ] && [ "$target_restart_mod" -le "$now_mod" ]; then
+  restart_system 2>>"$LOGFILE" || log_error "Neustart fehlgeschlagen"
+        exit 0
+      fi
+    else
+      # Tageswechsel (z.B. prev 23:59, now 00:01)
+      if [ "$target_restart_mod" -gt "$prev_mod" ] || [ "$target_restart_mod" -le "$now_mod" ]; then
+  restart_system 2>>"$LOGFILE" || log_error "Neustart fehlgeschlagen"
+        exit 0
+      fi
+    fi
   fi
+
+  if [ "${ENABLE_POWEROFF:-true}" = "true" ]; then
+    target_power_mod=$(awk -F: '{print ($1*3600)+($2*60)}' <<<"$POWEROFF_TIME")
+    if [ "$now_mod" -ge "$prev_mod" ]; then
+      if [ "$target_power_mod" -gt "$prev_mod" ] && [ "$target_power_mod" -le "$now_mod" ]; then
+  poweroff_system 2>>"$LOGFILE" || log_error "Poweroff fehlgeschlagen"
+        exit 0
+      fi
+    else
+      if [ "$target_power_mod" -gt "$prev_mod" ] || [ "$target_power_mod" -le "$now_mod" ]; then
+  poweroff_system 2>>"$LOGFILE" || log_error "Poweroff fehlgeschlagen"
+        exit 0
+      fi
+    fi
+  fi
+
+  # Aktualisiere prev_check_time für die nächste Iteration
+  prev_check_time=$now
+
 
   for m in "${MON_LIST[@]}"; do
     pid=${MON_PID[$m]}
@@ -307,7 +520,7 @@ if [ "${PAGE_REFRESH_INTERVAL:-0}" -gt 0 ]; then
       log "Reinitialisiere Workspace $ws"
       rm -rf "$ws" && mkdir -p "$ws"
       if [ -d "$CHROMIUM_CONFIG" ]; then
-        cp -r "$CHROMIUM_CONFIG/." "$ws/" 2>>"$ERRORLOG" \
+        cp -r "$CHROMIUM_CONFIG/." "$ws/" 2>>"$LOGFILE" \
           || log_error "Kopie nach $ws fehlgeschlagen"
       fi
       start_chromium "$m"

@@ -11,14 +11,29 @@ LOGFILE="$LOGDIR/kiosk-start-$TIMESTAMP.log"
 ERRORLOG="$LOGDIR/kiosk-error-$TIMESTAMP.log"
 CHROMIUM_BIN="$(command -v chromium-browser || command -v chromium)"
 CHROMIUM_CONFIG="$HOME/.config/chromium"
-ENABLE_RESTART=true   # true = Neustart aktiv, false = deaktiviert
-RESTART_TIME="23:00"
 REFRESH_INACTIVITY_THRESHOLD=300
 PAGE_REFRESH_INTERVAL=600
+
+# Powersettings
+ENABLE_POWEROFF=false  # true = Poweroff aktiv, false = deaktiviert
+POWEROFF_TIME="04:00"
+ENABLE_RESTART=true   # true = Neustart aktiv, false = deaktiviert
+RESTART_TIME="23:00"
 
 # Log-Rotation und Watchdog
 MAX_LOGS=7
 CHECK_INTERVAL=10
+
+# Logging extras
+# LOG_FORMAT: "text" or "json"
+LOG_FORMAT="text"
+# send logs also to systemd/journald (true/false)
+LOG_TO_JOURNAL=true
+# Rotation nach Größe (Bytes) und Anzahl Backups
+MAX_LOG_SIZE=$((10*1024*1024)) # 10 MB
+LOG_MAX_BACKUPS=5
+# Tag für Journal/syslog
+LOG_TAG="kiosk"
 
 # Default-URL, falls urls.ini fehlt oder keinen Eintrag liefert
 DEFAULT_URL="https://example.com"
