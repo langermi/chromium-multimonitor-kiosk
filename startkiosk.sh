@@ -17,7 +17,7 @@ fi
 # Abhängigkeiten prüfen
 check_prereqs() {
   local missing=0
-  for cmd in xdotool xrandr gsettings chromium; do
+  for cmd in xdotool xrandr gsettings chromium curl; do
     if ! command -v "$cmd" &>/dev/null; then
       echo "Fehler: '$cmd' nicht gefunden. Bitte installieren." >&2
       missing=1
@@ -38,7 +38,7 @@ check_prereqs() {
         exit 1
       fi
     if [[ ! "$RESTART_TIME" =~ ^([0-1][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
-        log_error "Ungültiges RESTART_TIME Format: $RESTART_TIME"
+        echo "Ungültiges RESTART_TIME Format: $RESTART_TIME" >&2
         exit 1
     fi
   
@@ -55,11 +55,30 @@ fi
 log()       { echo "[$(date '+%F %T')] $*"    >> "$LOGFILE"; }
 log_error() { echo "[$(date '+%F %T')] [ERROR] $*" >> "$ERRORLOG"; }
 
-# Funktion für Systemneustart
-restart_system() {
-  log "Automatischer Neustart um $RESTART_TIME ausgelöst"
-  sudo shutdown -r now
+# URLs aus der Konfiguration validieren
+validate_urls() {
+    local url_valid=true
+    local url
+    for url in "$@"; do
+        # URL testen
+        if ! curl --output /dev/null --silent --head --fail "$url"; then
+            log_error "URL nicht erreichbar: $url"
+            url_valid=false
+        else
+            log "URL validiert: $url"
+        fi
+    done
+    
+    if [ "$url_valid" = false ]; then
+        if [ "$STRICT_URL_VALIDATION" = true ]; then
+            log_error "Strikte URL-Validierung fehlgeschlagen - Abbruch"
+            exit 1
+        else
+            log_error "URL-Validierung fehlgeschlagen - Fortfahren mit Warnungen"
+        fi
+    fi
 }
+
 
 # Log-Rotation durchführen
 rotate_logs() {
@@ -71,6 +90,12 @@ rotate_logs() {
 }
 rotate_logs
 log "=== Kiosk-Skript gestartet ==="
+
+# Funktion für Systemneustart
+restart_system() {
+  log "Automatischer Neustart um $RESTART_TIME ausgelöst"
+  sudo shutdown -r now
+}
 
 # Bildschirmschoner und Notifications deaktivieren
 xset s off            # Bildschirmschoner ausschalten
@@ -90,23 +115,41 @@ if [ -f "$PREFS" ]; then
 fi
 
 # URLs einlesen
-declare -A URL_BY_NAME URL_BY_INDEX
+declare -A URL_BY_NAME URL_BY_INDEX REFRESH_BY_NAME REFRESH_BY_INDEX
+declare -a ALL_URLS
+DEFAULT_REFRESH_ENABLED=true
+
 if [ -f "$URLS_INI" ]; then
   log "Lade URLs aus $URLS_INI"
   while IFS='=' read -r key val; do
     [[ -z "$key" || "$key" =~ ^# ]] && continue
     key="${key//[[:space:]]/}"; key="${key,,}"
     val="${val##*( )}"; val="${val%%*( )}"
+
+    url_part="${val%%,*}"
+    option_part="${val#*,}"
+
+    ALL_URLS+=("$url_part")
+    refresh_enabled=true
+    if [[ "$option_part" == "norefresh" ]]; then
+      refresh_enabled=false
+    fi
+
     if [ "$key" = "default" ]; then
-      DEFAULT_URL="$val"
+      DEFAULT_URL="$url_part"
+      DEFAULT_REFRESH_ENABLED=$refresh_enabled
     elif [[ "$key" =~ ^index([0-9]+)$ ]]; then
-      URL_BY_INDEX["${BASH_REMATCH[1]}"]=$val
+      URL_BY_INDEX["${BASH_REMATCH[1]}"]=$url_part
+      REFRESH_BY_INDEX["${BASH_REMATCH[1]}"]=$refresh_enabled
     else
-      URL_BY_NAME["$key"]=$val
+      URL_BY_NAME["$key"]=$url_part
+      REFRESH_BY_NAME["$key"]=$refresh_enabled
     fi
   done <"$URLS_INI"
+  validate_urls "${ALL_URLS[@]}"
 else
   log "WARN: urls.ini nicht gefunden. Nutze $DEFAULT_URL"
+  validate_urls "$DEFAULT_URL"
 fi
 
 # Monitore auslesen
@@ -138,13 +181,18 @@ for m in "${MON_LIST[@]}"; do
 done
 
 # Workspaces erstellen und URLs zuweisen
-declare -A MON_URL WS_DIR MON_PID RESTART_COUNT
+declare -A MON_URL WS_DIR MON_PID RESTART_COUNT MON_REFRESH_ENABLED
 for idx in "${!MON_LIST[@]}"; do
   m="${MON_LIST[$idx]}"
   key="${m,,}"
+  
+  # URL und Refresh-Einstellung ermitteln
   url="${URL_BY_NAME[$key]:-${URL_BY_INDEX[$idx]:-$DEFAULT_URL}}"
+  refresh_setting="${REFRESH_BY_NAME[$key]:-${REFRESH_BY_INDEX[$idx]:-$DEFAULT_REFRESH_ENABLED}}"
+
   ws="$WORKSPACES/$key"
   MON_URL["$m"]=$url
+  MON_REFRESH_ENABLED["$m"]=$refresh_setting
   WS_DIR["$m"]=$ws
   mkdir -p "$ws"
   if [ -d "$CHROMIUM_CONFIG" ]; then
@@ -152,7 +200,7 @@ for idx in "${!MON_LIST[@]}"; do
       || log_error "Kopie nach $ws fehlgeschlagen"
   fi
   RESTART_COUNT["$m"]=0
-  log "Setup: $m → $url (Workspace: $ws)"
+  log "Setup: $m → $url (Workspace: $ws, Refresh: ${MON_REFRESH_ENABLED[$m]})"
 done
 
 # Funktion zum Starten von Chromium
@@ -170,21 +218,7 @@ start_chromium() {
   fi
 
   "$CHROMIUM_BIN" \
-    --no-first-run \
-    --disable-session-crashed-bubble \
-    --disable-infobars \
-    --disable-save-password-bubble \
-    --disable-gcm-registration \
-    --disable-breakpad \
-    --disable-background-networking \
-    --disable-client-side-phishing-detection \
-    --disable-component-update \
-    --disable-sync \
-    --disable-translate \
-    --disable-features=PushMessaging \
-    --no-default-browser-check \
-    --disable-popup-blocking \
-    --disable-logging \
+    "${CHROMIUM_FLAGS[@]}" \
     --user-data-dir="$ws" \
     --app="$url" \
     >>"$LOGFILE" 2> >(
@@ -195,9 +229,14 @@ start_chromium() {
   MON_PID["$m"]=$!
   log "PID=${MON_PID[$m]}"
 
-  sleep 3
+  # Warte bis zu 10 Sekunden auf das Fenster
   local win_id
-  win_id=$(xdotool search --sync --onlyvisible --pid "${MON_PID[$m]}" | head -n1)
+  for ((i=0; i<10; i++)); do
+    win_id=$(xdotool search --sync --onlyvisible --pid "${MON_PID[$m]}" | head -n1)
+    [ -n "$win_id" ] && break
+    sleep 1
+  done
+
   if [ -n "$win_id" ]; then
     xdotool windowmove  "$win_id" "$x" "$y"
     xdotool windowsize "$win_id" "$w" "$h"
@@ -216,10 +255,40 @@ for m in "${MON_LIST[@]}"; do
 done
 
 # Watchdog-Schleife
+last_refresh_time=$(date +%s)
 while true; do
   sleep "$CHECK_INTERVAL"
 
-  # Zeit prüfen und ggf. Neustart auslösen
+  # Periodischer Seiten-Refresh bei Inaktivität
+  if [ "${PAGE_REFRESH_INTERVAL:-0}" -gt 0 ]; then
+    now=$(date +%s)
+    if (( now - last_refresh_time > PAGE_REFRESH_INTERVAL )); then
+      # Inaktivitätsdauer auslesen (in Sekunden)
+      idle_time_ms=$(xset q | awk '/idle/ {print $4}')
+      idle_seconds=$((idle_time_ms / 1000))
+
+      if [ "$idle_seconds" -ge "${REFRESH_INACTIVITY_THRESHOLD:-300}" ]; then
+        log "Inaktivität ($idle_seconds s) überschreitet Schwellenwert. Führe Seiten-Refresh aus."
+        for m in "${MON_LIST[@]}"; do
+          if [ "${MON_REFRESH_ENABLED[$m]}" = true ]; then
+            pid=${MON_PID[$m]}
+            if kill -0 "$pid" &>/dev/null; then
+              win_id=$(xdotool search --sync --onlyvisible --pid "$pid" | head -n1)
+              if [ -n "$win_id" ]; then
+                xdotool key --window "$win_id" F5
+                log "Refresh für Fenster $win_id auf Monitor $m gesendet."
+              fi
+            fi
+          else
+            log "Refresh für Monitor $m übersprungen (deaktiviert)."
+          fi
+        done
+        last_refresh_time=$now # Zeit nur nach erfolgreichem Refresh zurücksetzen
+      else
+        log "Refresh übersprungen. System ist aktiv (Inaktivität: $idle_seconds s)."
+      fi
+    fi
+  fi  # Zeit prüfen und ggf. Neustart auslösen
   current_time=$(date '+%H:%M')
   if [ "${ENABLE_RESTART:-true}" = "true" ] && [ "$current_time" = "$RESTART_TIME" ]; then
     log "Initiire restart $current_time"

@@ -20,3 +20,23 @@ CHECK_INTERVAL=10
 
 # Default-URL, falls urls.ini fehlt oder keinen Eintrag liefert
 DEFAULT_URL="https://example.com"
+STRICT_URL_VALIDATION=true
+
+# Chromium Start-Parameter
+CHROMIUM_FLAGS=(
+  "--no-first-run"
+  "--disable-session-crashed-bubble"
+  "--disable-infobars"
+  "--disable-save-password-bubble"
+  "--disable-gcm-registration"
+  "--disable-breakpad"
+  "--disable-background-networking"
+  "--disable-client-side-phishing-detection"
+  "--disable-component-update"
+  "--disable-sync"
+  "--disable-translate"
+  "--disable-features=PushMessaging"
+  "--no-default-browser-check"
+  "--disable-popup-blocking"
+  "--disable-logging"
+)

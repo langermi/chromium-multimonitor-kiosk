@@ -13,8 +13,7 @@ Dieses Bash-basierte Kiosk-System startet pro erkanntem Monitor eine eigene Chro
 - **Saubere Logs:** Getrennte Logs für Ablauf und Fehler, mit täglicher Komprimierung und Aufbewahrung.
 - **Testmodus:** Startparameter `--test` zum Trockenlauf ohne Chromium.
 - **Chromium Konfiguration:** Alle Chromium einstellungen werden aus dem default Profil entnommen. So muss nicht jede instanz einzeln konfiguriert werden
-- **Automatischer Neustart:** Das Kiosk-System kann zu einer festgelegten Uhrzeit automatisch neu starten, um einen stabilen Betrieb zu gewährleisten (z.B. täglicher Reboot um 04:00 Uhr).  
-Die Uhrzeit wird in der Konfiguration (`config.sh`) über die Variable `RESTART_TIME` gesetzt.
+- **Automatischer Neustart:** Das Kiosk-System kann zu einer festgelegten Uhrzeit automatisch neu starten, um einen stabilen Betrieb zu gewährleisten (z.B. täglicher Reboot um 04:00 Uhr). 
 
 ---
 
@@ -34,8 +33,9 @@ kiosk-system/
 
 - **Shell und Umgebung:** bash, X11 Session (kein Wayland)
 - **Browser:** chromium oder chromium-browser
-- **Tools:** xdotool, xrandr, gsettings
+- **Tools:** xdotool, xrandr, gsettings, curl
 - **Desktop:** GNOME empfohlen; Hinweis auf Extension „No overview at startup“
+- **System:** Für den automatischen Neustart muss der Benutzer das Recht haben, den Shutdown-Befehl ohne Passwort auszuführen (siehe `/etc/sudoers`). 
 
 > Hinweis: Unter Wayland funktioniert die Fenstersteuerung mit xdotool nicht. Bitte eine Xorg-Session verwenden.
 
@@ -83,10 +83,6 @@ kiosk-system/
   ```bash
   ENABLE_RESTART=true
   ```
-
-**Hinweis:**  
-Für den automatischen Neustart muss der Benutzer das Recht haben, den Shutdown-Befehl ohne Passwort auszuführen (siehe `/etc/sudoers`).  
-Der Neustart erfolgt nur, wenn das Skript dauerhaft läuft.
 
 - **Neustart Zeitpunkt (24H):**
   ```bash
