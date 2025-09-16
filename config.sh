@@ -13,6 +13,8 @@ CHROMIUM_BIN="$(command -v chromium-browser || command -v chromium)"
 CHROMIUM_CONFIG="$HOME/.config/chromium"
 ENABLE_RESTART=true   # true = Neustart aktiv, false = deaktiviert
 RESTART_TIME="23:00"
+REFRESH_INACTIVITY_THRESHOLD=300
+PAGE_REFRESH_INTERVAL=600
 
 # Log-Rotation und Watchdog
 MAX_LOGS=7

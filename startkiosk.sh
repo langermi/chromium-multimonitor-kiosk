@@ -17,7 +17,7 @@ fi
 # Abhängigkeiten prüfen
 check_prereqs() {
   local missing=0
-  for cmd in xdotool xrandr gsettings chromium curl; do
+  for cmd in xdotool xrandr gsettings chromium curl xprintidle; do
     if ! command -v "$cmd" &>/dev/null; then
       echo "Fehler: '$cmd' nicht gefunden. Bitte installieren." >&2
       missing=1
@@ -33,7 +33,7 @@ check_prereqs() {
   fi
   [ "$missing" -ne 0 ] && exit 1
 
-      if ! touch "$LOGDIR/test" 2>/dev/null; then
+      if ! touch "$SCRIPT_DIR/test" 2>/dev/null; then
         echo "Fehler: Keine Schreibrechte in $LOGDIR"
         exit 1
       fi
@@ -260,11 +260,13 @@ while true; do
   sleep "$CHECK_INTERVAL"
 
   # Periodischer Seiten-Refresh bei Inaktivität
-  if [ "${PAGE_REFRESH_INTERVAL:-0}" -gt 0 ]; then
+if [ "${PAGE_REFRESH_INTERVAL:-0}" -gt 0 ]; then
     now=$(date +%s)
     if (( now - last_refresh_time > PAGE_REFRESH_INTERVAL )); then
-      # Inaktivitätsdauer auslesen (in Sekunden)
-      idle_time_ms=$(xset q | awk '/idle/ {print $4}')
+      # Inaktivitätsdauer auslesen (in Sekunden) mit xprintidle
+      if command -v xprintidle &>/dev/null; then
+        idle_time_ms=$(xprintidle)
+      fi
       idle_seconds=$((idle_time_ms / 1000))
 
       if [ "$idle_seconds" -ge "${REFRESH_INACTIVITY_THRESHOLD:-300}" ]; then
