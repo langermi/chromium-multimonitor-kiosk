@@ -4,6 +4,28 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 source "$SCRIPT_DIR/config.sh"
 
+# Strikte Bash-Optionen: Fehler früh erkennen, keine stillen Fehlzustände
+# Wird nach dem Einlesen der Konfiguration gesetzt, damit fehlende Variablen
+# aus der Config sauber erkannt werden.
+set -o errexit
+set -o nounset
+set -o pipefail
+# Sichere IFS-Initialisierung
+IFS=$'\n\t'
+
+# Einfacher Cleanup-Handler: sauber beenden bei Signalen (SIGINT,SIGTERM,SIGHUP)
+# Verwende keine log_* Funktionen hier, da sie später definiert werden.
+cleanup() {
+  # Best-effort: Chromium-Prozesse beenden
+  pkill -x chromium chromium-browser 2>/dev/null || true
+  pkill -f "chromium" 2>/dev/null || true
+  # Warte kurz, damit Kinderprozesse terminiert werden
+  sleep 1
+}
+
+trap 'cleanup' INT TERM HUP
+trap 'cleanup' EXIT
+
 # Einheitliches Logging: tägliches Logfile, Debug-Flag und STDERR-Redirect
 mkdir -p "$LOGDIR"
 # tägliches Logfile-Naming (kiosk-YYYY-MM-DD.log)
@@ -269,17 +291,69 @@ poweroff_system() {
   sudo systemctl poweroff
 }
 
-# Bildschirmschoner und Notifications deaktivieren
-xset s off            # Bildschirmschoner ausschalten
-xset -dpms            # Energiesparfunktionen deaktivieren
-xset s noblank        # Bildschirm nicht ausblenden
-  gsettings set org.gnome.desktop.session idle-delay 0 2>>"$LOGFILE"
-  gsettings set org.gnome.desktop.screensaver idle-activation-enabled false 2>>"$LOGFILE"
-  gsettings set org.gnome.desktop.screensaver lock-enabled false 2>>"$LOGFILE"
-  gsettings set org.gnome.desktop.notifications show-banners false 2>>"$LOGFILE"
-  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing' 2>>"$LOGFILE"
-  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing' 2>>"$LOGFILE"
-# Clean-exit & Übersetzer in Chromium prefs abschalten
+# Bildschirmschoner und Notifications deaktivieren (mit Verifikation)
+if [ "${APPLY_POWER_SETTINGS:-true}" = true ]; then
+  log "Deaktiviere Bildschirmschoner und Notifications"
+
+  # xset-Einstellungen (falls verfügbar)
+  if command -v xset &>/dev/null; then
+  if xset s off; then
+    log "xset: Bildschirmschoner deaktiviert (s off)"
+  else
+    log_warn "xset: Konnte Bildschirmschoner (s off) nicht deaktivieren"
+  fi
+
+  if xset -dpms; then
+    log "xset: DPMS deaktiviert"
+  else
+    log_warn "xset: Konnte DPMS nicht deaktivieren"
+  fi
+
+  if xset s noblank; then
+    log "xset: Bildschirm-Blanking deaktiviert"
+  else
+    log_warn "xset: Konnte Bildschirm-Blanking nicht deaktivieren"
+  fi
+  else
+    log_warn "xset nicht gefunden; überspringe lokale X-Settings"
+  fi
+
+# Hilfsfunktion: gsettings setzen und verifizieren
+set_and_verify_gsetting() {
+  local schema="$1" key="$2" value="$3"
+  if ! command -v gsettings &>/dev/null; then
+    log_warn "gsettings nicht verfügbar; $schema $key nicht gesetzt"
+    return 1
+  fi
+  if gsettings set "$schema" "$key" $value 2>>"$LOGFILE"; then
+    actual=$(gsettings get "$schema" "$key" 2>>"$LOGFILE" || true)
+    # Entferne umschließende Anführungszeichen und Leerzeichen, kleingeschrieben für Vergleich
+    actual_s=$(echo "$actual" | sed -e "s/^['\"]//" -e "s/['\"]$//" -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')
+    expected_s=$(echo "$value" | sed -e "s/^['\"]//" -e "s/['\"]$//" | tr '[:upper:]' '[:lower:]')
+    if [ "$actual_s" = "$expected_s" ]; then
+      log "gsettings: $schema $key auf $value gesetzt (verifiziert)"
+      return 0
+    else
+      log_warn "gsettings: $schema $key gesetzt, Bestätigung weicht ab (erwartet: $expected_s, erhalten: $actual_s)"
+      return 2
+    fi
+  else
+    log_error "gsettings: konnte $schema $key nicht auf $value setzen"
+    return 1
+  fi
+}
+
+  # Gnome/GSettings Einstellungen setzen und prüfen
+  set_and_verify_gsetting org.gnome.desktop.session idle-delay 0
+  set_and_verify_gsetting org.gnome.desktop.screensaver idle-activation-enabled false
+  set_and_verify_gsetting org.gnome.desktop.screensaver lock-enabled false
+  set_and_verify_gsetting org.gnome.desktop.notifications show-banners false
+  set_and_verify_gsetting org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type "'nothing'"
+  set_and_verify_gsetting org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type "'nothing'"
+else
+  log_warn "APPLY_POWER_SETTINGS ist deaktiviert; Power-/Screensaver-Einstellungen werden übersprungen"
+fi
+# Clean-exit in Chromium prefs abschalten
 PREFS="$CHROMIUM_CONFIG/Default/Preferences"
   if [ -f "$PREFS" ]; then
   sed -i 's/"exited_cleanly":false/"exited_cleanly":true/' "$PREFS" 2>>"$LOGFILE"
@@ -466,15 +540,15 @@ while true; do
   elapsed=$(( now - last_refresh_time ))
   # Restzeit bis zum nächsten vollen Intervall
   remainder=$(( elapsed % PAGE_REFRESH_INTERVAL ))
-  # Setze last_refresh_time so, dass next expected = now + (PAGE_REFRESH_INTERVAL - remainder)
+  # Setze last_refresh_time so, dass der nächste erwartete = jetzt + (PAGE_REFRESH_INTERVAL - verbleibende Zeit)
   last_refresh_time=$(( now - remainder ))
       else
         log "Refresh übersprungen. System ist aktiv (Inaktivität: $idle_seconds s)."
       fi
     fi
   fi  # Zeit prüfen und ggf. Neustart auslösen
-  # Prüfe, ob die konfigurierten Zeiten (Restart / Poweroff) zwischen prev_check_time und now lagen.
-  # Vergleiche auf Sekunden-since-midnight, das vermeidet verpasste Trigger bei großen CHECK_INTERVAL.
+  # Prüfe, ob die konfigurierten Zeiten (Restart / Poweroff) zwischen prev_check_time und jetzt lagen.
+  # Vergleiche auf Sekunden seit Mitternacht das vermeidet verpasste Trigger bei großen CHECK_INTERVAL.
   if [ "${ENABLE_RESTART:-true}" = "true" ]; then
     target_restart_mod=$(awk -F: '{print ($1*3600)+($2*60)}' <<<"$RESTART_TIME")
     # Normalfall (kein Tageswechsel zwischen den Zeitpunkten)

@@ -24,6 +24,10 @@ RESTART_TIME="23:00"
 MAX_LOGS=7
 CHECK_INTERVAL=10
 
+# Soll das Skript Power-/Screensaver-Einstellungen automatisch setzen?
+# true = anwenden, false = überspringen
+APPLY_POWER_SETTINGS=true
+
 # Logging extras
 # LOG_FORMAT: "text" or "json"
 LOG_FORMAT="text"

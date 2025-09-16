@@ -14,3 +14,11 @@
 - Validierung der `RESTART_TIME` und `POWEROFF_TIME` Formate
 - Berechtigungsprüfung für Neustart/Poweroff (prüft `sudo -n` und `systemctl`-Verfügbarkeit)
 - Diverse Kommentar- und Dokumentationsverbesserungen
+
+- README synchronisiert mit `startkiosk.sh` / `config.sh` / `urls.ini`:
+  - README jetzt enthält die canonical defaults aus `config.sh` (Pfad-, Logging- und Timer-Defaults)
+  - Ausführliche Kurzdokumentation der wichtigsten Skriptfunktionen hinzugefügt (z. B. `start_chromium`, `validate_urls`, `check_prereqs`, `set_and_verify_gsetting`, `can_execute_reboot_or_poweroff`, `rotate_by_size`, Watchdog-Loop)
+  - Logging-Verhalten (per-run logs, tägliches Log, size-basierte Rotation, JSON-Format, journald-Forwarding) dokumentiert
+  - `urls.ini`-Option `norefresh` dokumentiert und Hinweis, dass Monitor-Namen kleingeschrieben werden
+  - Klarstellung des Workspace-Verhaltens: bei Neustart/Crash wird das Workspace-Verzeichnis gelöscht und ggf. mit `$CHROMIUM_CONFIG` neu befüllt (Hinweis auf Datenschutz)
+  - Widersprüchliche Lizenzformulierung in README bereinigt: `LICENCE` ist die maßgebliche Quelle
