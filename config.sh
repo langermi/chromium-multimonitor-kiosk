@@ -11,6 +11,8 @@ LOGFILE="$LOGDIR/kiosk-start-$TIMESTAMP.log"
 ERRORLOG="$LOGDIR/kiosk-error-$TIMESTAMP.log"
 CHROMIUM_BIN="$(command -v chromium-browser || command -v chromium)"
 CHROMIUM_CONFIG="$HOME/.config/chromium"
+ENABLE_RESTART=true   # true = Neustart aktiv, false = deaktiviert
+RESTART_TIME="23:00"
 
 # Log-Rotation und Watchdog
 MAX_LOGS=7

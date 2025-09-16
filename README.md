@@ -13,6 +13,8 @@ Dieses Bash-basierte Kiosk-System startet pro erkanntem Monitor eine eigene Chro
 - **Saubere Logs:** Getrennte Logs für Ablauf und Fehler, mit täglicher Komprimierung und Aufbewahrung.
 - **Testmodus:** Startparameter `--test` zum Trockenlauf ohne Chromium.
 - **Chromium Konfiguration:** Alle Chromium einstellungen werden aus dem default Profil entnommen. So muss nicht jede instanz einzeln konfiguriert werden
+- **Automatischer Neustart:** Das Kiosk-System kann zu einer festgelegten Uhrzeit automatisch neu starten, um einen stabilen Betrieb zu gewährleisten (z.B. täglicher Reboot um 04:00 Uhr).  
+Die Uhrzeit wird in der Konfiguration (`config.sh`) über die Variable `RESTART_TIME` gesetzt.
 
 ---
 
@@ -45,8 +47,9 @@ kiosk-system/
 
 1. **Repository klonen**
    ```bash
-   git clone https://github.com/<dein-benutzername>/kiosk-system.git
-   cd kiosk-system
+   mkdir $HOME/kiosk-system
+   cd $HOME/kiosk-system
+   git clone https://github.com/langermi/chromium-multimonitor-kiosk.git .
    ```
 2. **Skripte ausführbar machen**
    ```bash
@@ -75,6 +78,19 @@ kiosk-system/
 - **Fallback-URL:**  
   ```bash
   DEFAULT_URL="https://example.com"
+  ```
+- **Neustart aktivieren/deaktivieren:**  
+  ```bash
+  ENABLE_RESTART=true
+  ```
+
+**Hinweis:**  
+Für den automatischen Neustart muss der Benutzer das Recht haben, den Shutdown-Befehl ohne Passwort auszuführen (siehe `/etc/sudoers`).  
+Der Neustart erfolgt nur, wenn das Skript dauerhaft läuft.
+
+- **Neustart Zeitpunkt (24H):**
+  ```bash
+  RESTART_TIME="04:00"
   ```
 
 ### Konfiguration in urls.ini
@@ -143,7 +159,7 @@ kiosk-system/
    Type=simple
    Environment=DISPLAY=:0
    WorkingDirectory=%h/kiosk-system
-   ExecStart=%h/kiosk-system/startkiosk.sh
+   ExecStart=bash -c "sleep 10 && $HOME/kiosk-system/startkiosk.sh"
    Restart=always
    RestartSec=10
 
@@ -157,14 +173,20 @@ kiosk-system/
    ```
 
 ### Autostart als .desktop-Datei (GNOME)
+```bash
+mkdir -p ~/.config/autostart
+```
 
 ```ini
 # ~/.config/autostart/kiosk.desktop
 [Desktop Entry]
 Type=Application
-Name=Kiosk
-Exec=/bin/bash -lc "$HOME/kiosk-system/startkiosk.sh"
+Exec=bash -c "sleep 10 && $HOME/kiosk-system/startkiosk.sh"
+Hidden=false
+NoDisplay=false
 X-GNOME-Autostart-enabled=true
+Name=Start Kiosk
+Comment=Startet das Kiosk-System mit 10 Sekunden Verzögerung
 ```
 
 ### Häufige probleme
@@ -178,7 +200,9 @@ X-GNOME-Autostart-enabled=true
 - **Monitornamen stimmen nicht:**  
   Mit `xrandr --query` prüfen und Namen in `urls.ini` exakt in Kleinbuchstaben übernehmen.
 - **Berechtigungen/Dateien:**  
-  Existiert `logs/`? Skripte ausführbar? Schreibrechte im HOME-Verzeichnis vorhanden?
+  Existiert `logs/`? Sind die Skripte ausführbar? Schreibrechte im Programm-Verzeichnis vorhanden?
+- **Das system startet nicht neu:**  
+  Für den automatischen Neustart muss der Benutzer das Recht haben, den Shutdown-Befehl ohne Passwort auszuführen.
 
 ---
 
@@ -190,3 +214,9 @@ X-GNOME-Autostart-enabled=true
   Der Übersetzer und Crashed-Bubbles werden in den Chromium-Preferences unterdrückt, um einen unterbrechungsfreien Betrieb zu gewährleisten.
 - **Erweiterungen:**  
   Eigene Policies/Flags kannst du in `start_chromium()` ergänzen.
+
+  Dieses Projekt steht unter der „MIT License (Modified)“.  
+  **Kommerzielle Nutzung oder Verbreitung ist nur mit vorheriger schriftlicher Zustimmung des Autors erlaubt.**  
+  Siehe [LICENCE](./LICENCE) für Details.
+
+  Kontakt für kommerzielle Anfragen: michael+git@langer.tirol

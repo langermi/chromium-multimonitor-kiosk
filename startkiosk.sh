@@ -10,7 +10,7 @@ sleep 1
 
 # Prüfe Bash-Umgebung
 if [ -z "${BASH_VERSION:-}" ]; then
-  echo "Dieses Skript benötigt bash." >&2
+  echo "Dieses Skript benötigt bash. (bash startkiosk.sh)" >&2
   exit 1
 fi
 
@@ -29,9 +29,19 @@ check_prereqs() {
   fi
   if ! gsettings get org.gnome.shell enabled-extensions \
        | grep -qE "nooverview|no-overview"; then
-    echo "Warnung: 'No overview at startup' nicht aktiviert." >&2
+    echo "Warnung: 'No overview at startup' nicht aktiviert oder Installiert." >&2
   fi
   [ "$missing" -ne 0 ] && exit 1
+
+      if ! touch "$LOGDIR/test" 2>/dev/null; then
+        echo "Fehler: Keine Schreibrechte in $LOGDIR"
+        exit 1
+      fi
+    if [[ ! "$RESTART_TIME" =~ ^([0-1][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+        log_error "Ungültiges RESTART_TIME Format: $RESTART_TIME"
+        exit 1
+    fi
+  
 }
 check_prereqs
 
@@ -44,6 +54,12 @@ fi
 # Logging-Funktionen
 log()       { echo "[$(date '+%F %T')] $*"    >> "$LOGFILE"; }
 log_error() { echo "[$(date '+%F %T')] [ERROR] $*" >> "$ERRORLOG"; }
+
+# Funktion für Systemneustart
+restart_system() {
+  log "Automatischer Neustart um $RESTART_TIME ausgelöst"
+  sudo shutdown -r now
+}
 
 # Log-Rotation durchführen
 rotate_logs() {
@@ -166,6 +182,9 @@ start_chromium() {
     --disable-sync \
     --disable-translate \
     --disable-features=PushMessaging \
+    --no-default-browser-check \
+    --disable-popup-blocking \
+    --disable-logging \
     --user-data-dir="$ws" \
     --app="$url" \
     >>"$LOGFILE" 2> >(
@@ -199,6 +218,15 @@ done
 # Watchdog-Schleife
 while true; do
   sleep "$CHECK_INTERVAL"
+
+  # Zeit prüfen und ggf. Neustart auslösen
+  current_time=$(date '+%H:%M')
+  if [ "${ENABLE_RESTART:-true}" = "true" ] && [ "$current_time" = "$RESTART_TIME" ]; then
+    log "Initiire restart $current_time"
+    restart_system 2>>"$ERRORLOG" || log_error "Neustart fehlgeschlagen"
+    exit 0
+  fi
+
   for m in "${MON_LIST[@]}"; do
     pid=${MON_PID[$m]}
     if ! kill -0 "$pid" &>/dev/null; then
