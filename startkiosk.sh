@@ -308,11 +308,16 @@ check_prereqs
 # Funktion für Systemneustart
 restart_system() {
   log "Automatischer Neustart um $RESTART_TIME ausgelöst"
+  log_debug "restart_system: führe 'sudo systemctl reboot' aus"
+  # Schreibe ins Log und führe den Befehl aus
+  printf '%s [ACTION] Aufruf: sudo systemctl reboot\n' "$(date '+%F %T')" >>"$LOGFILE"
   sudo systemctl reboot
 }
 
 poweroff_system() {
   log "Automatischer Poweroff um $POWEROFF_TIME ausgelöst"
+  log_debug "poweroff_system: führe 'sudo systemctl poweroff' aus"
+  printf '%s [ACTION] Aufruf: sudo systemctl poweroff\n' "$(date '+%F %T')" >>"$LOGFILE"
   sudo systemctl poweroff
 }
 
@@ -562,8 +567,21 @@ while true; do
             if kill -0 "$pid" &>/dev/null; then
               win_id=$(xdotool search --sync --onlyvisible --pid "$pid" | head -n1)
               if [ -n "$win_id" ]; then
-                xdotool key --window "$win_id" F5
-                log "Refresh für Fenster $win_id auf Monitor $m gesendet."
+                # Versuche Fenster zu aktivieren und F5 zu senden; prüfe Exitcodes
+                if xdotool windowactivate "$win_id" 2>>"$LOGFILE"; then
+                  if xdotool key --window "$win_id" F5 2>>"$LOGFILE"; then
+                    log "Refresh (F5) für Fenster $win_id auf Monitor $m gesendet."
+                  else
+                    log_warn "Fehler beim Senden von F5 an Fenster $win_id auf Monitor $m. Versuche Ctrl+R als Fallback."
+                    if xdotool key --window "$win_id" ctrl+r 2>>"$LOGFILE"; then
+                      log "Refresh (Ctrl+R Fallback) für Fenster $win_id auf Monitor $m gesendet."
+                    else
+                      log_error "Refresh konnte nicht an Fenster $win_id auf Monitor $m gesendet werden."
+                    fi
+                  fi
+                else
+                  log_warn "Konnte Fenster $win_id auf Monitor $m nicht aktivieren (xdotool windowactivate fehlgeschlagen)."
+                fi
               fi
             fi
           else
@@ -585,6 +603,7 @@ while true; do
   # Vergleiche auf Sekunden seit Mitternacht das vermeidet verpasste Trigger bei großen CHECK_INTERVAL.
   if [ "${ENABLE_RESTART:-true}" = "true" ]; then
     target_restart_mod=$(awk -F: '{print ($1*3600)+($2*60)}' <<<"$RESTART_TIME")
+    log_debug "time-check restart: prev_mod=$prev_mod now_mod=$now_mod target_restart_mod=$target_restart_mod"
     # Normalfall (kein Tageswechsel zwischen den Zeitpunkten)
     if [ "$now_mod" -ge "$prev_mod" ]; then
       if [ "$target_restart_mod" -gt "$prev_mod" ] && [ "$target_restart_mod" -le "$now_mod" ]; then
@@ -602,6 +621,7 @@ while true; do
 
   if [ "${ENABLE_POWEROFF:-true}" = "true" ]; then
     target_power_mod=$(awk -F: '{print ($1*3600)+($2*60)}' <<<"$POWEROFF_TIME")
+    log_debug "time-check poweroff: prev_mod=$prev_mod now_mod=$now_mod target_power_mod=$target_power_mod"
     if [ "$now_mod" -ge "$prev_mod" ]; then
       if [ "$target_power_mod" -gt "$prev_mod" ] && [ "$target_power_mod" -le "$now_mod" ]; then
   poweroff_system 2>>"$LOGFILE" || log_error "Poweroff fehlgeschlagen"
