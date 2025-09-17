@@ -136,25 +136,30 @@ rotate_by_size() {
 
 # Prüfe, ob der aktuelle Benutzer Neustart/Poweroff ohne interaktives Passwort ausführen kann
 can_execute_reboot_or_poweroff() {
-  # Bevorzuge systemctl, falls verfügbar
-  if command -v systemctl &>/dev/null; then
-    # Prüfe, ob systemctl --user funktioniert (Hinweis: abhängig von Systemkonfiguration)
-    if systemctl --user &>/dev/null; then
-      return 0
-    fi
-  fi
+  # Prüfe, ob der Benutzer Neustart/Poweroff durchführen kann.
+  # `systemctl --user` ermöglicht normalerweise kein System-Reboot
+
   # Teste mit sudo -n (non-interactive), ob sudo ohne Passwort möglich ist
   if sudo -n true 2>/dev/null; then
-    # sudo ohne Passwort möglich
+    log_debug "can_execute_reboot_or_poweroff: sudo -n true -> allowed"
     return 0
   fi
+
   # Prüfe explizit, ob spezielle Befehle per sudo ohne Passwort ausführbar sind
   if sudo -n systemctl reboot &>/dev/null; then
+    log_debug "can_execute_reboot_or_poweroff: sudo -n systemctl reboot -> allowed"
     return 0
   fi
   if sudo -n /sbin/reboot &>/dev/null; then
+    log_debug "can_execute_reboot_or_poweroff: sudo -n /sbin/reboot -> allowed"
     return 0
   fi
+
+  # Falls polkit die direkte Ausführung von `systemctl reboot` ohne sudo erlaubt,
+  # kann ein Aufruf ohne Passwort erfolgreich sein. Wir testen eine harmlose
+  # systemctl-Abfrage auf dieselbe Weise — falls sie erfolgreich ist, zählen
+  # wir das nicht automatisch als Berechtigung zum Reboot (safety-first).
+
   return 1
 }
 
@@ -345,9 +350,24 @@ set_and_verify_gsetting() {
   fi
   if gsettings set "$schema" "$key" $value 2>>"$LOGFILE"; then
     actual=$(gsettings get "$schema" "$key" 2>>"$LOGFILE" || true)
-    # Entferne umschließende Anführungszeichen und Leerzeichen, kleingeschrieben für Vergleich
-    actual_s=$(echo "$actual" | sed -e "s/^['\"]//" -e "s/['\"]$//" -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')
-    expected_s=$(echo "$value" | sed -e "s/^['\"]//" -e "s/['\"]$//" | tr '[:upper:]' '[:lower:]')
+    # Normalisiere mögliche GVariant-Typpräfixe wie: uint32 0, b true, 'string'
+    # Entferne GVariant-Typen (alles bis zum ersten Leerzeichen, falls es ein Typ gibt)
+    # sowie umschließende Anführungszeichen und führende/folgenden Whitespace.
+    # Vergleiche in Kleinbuchstaben für Robustheit.
+    normalize() {
+      local v="$1"
+      # Entferne GVariant type prefix (e.g. "uint32 0" -> "0", "b true" -> "true")
+      v=$(echo "$v" | sed -E 's/^[[:alnum:]_]+[[:space:]]+//')
+      # Entferne umschließende einfache oder doppelte Anführungszeichen
+      v=$(echo "$v" | sed -e "s/^['\"]//" -e "s/['\"]$//")
+      # Trim
+      v=$(echo "$v" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+      # Lowercase
+      echo "$v" | tr '[:upper:]' '[:lower:]'
+    }
+
+    actual_s=$(normalize "$actual")
+    expected_s=$(normalize "$value")
     if [ "$actual_s" = "$expected_s" ]; then
       log "gsettings: $schema $key auf $value gesetzt (verifiziert)"
       return 0
