@@ -55,24 +55,14 @@ Description=Chromium Kiosk
 After=graphical.target
 
 [Service]
-# Type=simple: systemd tracks the main process started by ExecStart. Startkiosk
-# sollte im Vordergrund laufen (keine weitere Daemonisierung), damit systemd
-# Signale korrekt weitergeben kann.
 Type=simple
-
-# Optionales kurzes Pre-Start Delay (kann auf 0 gesetzt werden)
-ExecStartPre=/bin/sleep 0
-
-# Start direkt das Skript (nicht via bash -lc mit sleep), damit systemd PID
-# korrekt verfolgt und Signale weiterleiten kann.
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
+WorkingDirectory=%h/$KIOSK_DIR
+ExecStartPre=/bin/sleep 30
 ExecStart=/bin/bash -c '${KIOSK_DIR}/startkiosk.sh'
-
-# Beim Stop nicht ewig warten; systemd sendet zuerst SIGTERM, nach
-# TimeoutStopSec dann SIGKILL. 10s ist ein guter Kompromiss für schnellen
-# Reboot auf Debian 13 ohne unsauberes Abwürgen.
 TimeoutStopSec=10s
 KillMode=control-group
-# Explizit SIGTERM als beendendes Signal (Standard ist SIGTERM)
 KillSignal=SIGTERM
 
 Restart=on-failure

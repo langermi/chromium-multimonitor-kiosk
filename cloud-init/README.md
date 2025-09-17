@@ -1,3 +1,103 @@
+# Verwendung des Preseed-Files für Debian 13 netinst
+
+Diese Anleitung beschreibt, wie du das Preseed-File `preseed-kiosk-debian13.cfg` (Deutsch, Locale `de_AT.UTF-8`) aus diesem Repository für eine automatisierte Debian 13 netinst-Installation verwendest, sowie empfohlene Anpassungen und Prüfschritte.
+
+## Was das Preseed macht
+- Legt Sprache/Locale (`de_AT.UTF-8`) und Keyboard (`de`) fest
+- Partitioniert die gesamte Platte im "atomic"-Modus (ein Root-Ext4 auf `/dev/sda`)
+- Legt den Benutzer `kiosk` mit dem Passwort `kioskpass` an (Standard: Klartext)
+- Installiert zusätzliche Pakete (u. a. `gdm3`, `chromium`, `git`, `xserver-xorg`)
+- Führt ein `late_command` aus, das u. a. die folgenden Aktionen durchführt:
+  - Erstellt `/etc/sudoers.d/kiosk-nopasswd`
+  - Legt `/etc/gdm3/daemon.conf.d/99_kiosk.conf` (Autologin für `kiosk`) an
+  - Legt mehrere `~/.config/autostart/*.desktop`-Dateien an, die GNOME Keyring deaktivieren
+  - Klont das Repo nach `/home/kiosk/chromium-multimonitor-kiosk` und setzt Berechtigungen
+  - Versucht, das Skript `scripts/install_systemd_user_service.sh` als `kiosk` auszuführen (best-effort)
+  - Kopiert die GNOME-Erweiterung `no-overview@fthx` systemweit (best-effort)
+
+## Sicherheitshinweise
+- Das Preseed enthält standardmäßig ein Klartext-Passwort (`kioskpass`). Das ist nur für Tests gedacht. Setze nach der Installation ein sicheres Passwort.
+- Alternativ kannst du einen bereits gehashten Passwort-String (crypted) verwenden. Anleitung weiter unten.
+
+## Zwei Möglichkeiten, das Preseed bereitzustellen
+
+1) Preseed in die ISO einbinden (offline)
+
+  - Mount die netinst-ISO und kopiere ihren Inhalt in ein temporäres Verzeichnis:
+
+    ```bash
+    mkdir /tmp/iso && sudo mount -o loop debian-13-netinst.iso /tmp/iso
+    mkdir /tmp/iso-tree && rsync -a /tmp/iso/ /tmp/iso-tree/
+    sudo umount /tmp/iso
+    ```
+
+  - Lege das Preseed-File unter `/tmp/iso-tree/preseed/preseed-kiosk-debian13.cfg` ab.
+  - Passe (falls nötig) die Boot-Config (`/tmp/iso-tree/isolinux/txt.cfg` bzw. EFI-Config) an, damit beim Booten der Installer automatisch das Preseed lädt, z. B. durch Hinzufügen von `file=/cdrom/preseed/preseed-kiosk-debian13.cfg` oder `preseed/file=/cdrom/preseed/preseed-kiosk-debian13.cfg` zu den Kernel-Parametern.
+  - Repacke die ISO (z. B. mit `genisoimage`/`xorriso`) und teste die ISO in einer VM.
+
+2) Preseed per HTTP ausliefern (empfohlen für schnelle Tests)
+
+  - Starte einen einfachen HTTP-Server im Verzeichnis mit `preseed-kiosk-debian13.cfg`:
+
+    ```bash
+    python3 -m http.server 8000
+    ```
+
+  - Boote das netinst-Medium und füge beim Booten die Kernel-Option hinzu:
+
+    preseed/url=http://<dein-host>:8000/preseed-kiosk-debian13.cfg DEBCONF_FRONTEND=text
+
+  - Damit liest der Installer das Preseed per HTTP.
+
+## Passwort-Hash statt Klartext (optional, empfohlen)
+1) Erzeuge auf deinem Host einen verschlüsselten Passwort-Hash (als root oder mit `sudo`):
+
+  ```bash
+  mkpasswd -m sha-512
+  # oder (falls mkpasswd nicht vorhanden):
+  python3 -c "import crypt, getpass; print(crypt.crypt(getpass.getpass(), crypt.mksalt(crypt.METHOD_SHA512)))"
+  ```
+
+2) Ersetze in `preseed-kiosk-debian13.cfg` die beiden Zeilen
+
+  ```text
+  d-i passwd/user-password password kioskpass
+  d-i passwd/user-password-again password kioskpass
+  ```
+
+  durch
+
+  ```text
+  d-i passwd/user-password-crypted password <HASH>
+  ```
+
+  wobei `<HASH>` der mit `mkpasswd` / `crypt` erzeugte Hash ist.
+
+Hinweis: Wenn du `passwd/user-password-crypted` benutzt, entferne die Klartext-Variablen.
+
+## Spezielle Hinweise zum `late_command`
+- Einige der Befehle (z. B. `systemctl --user` oder `gsettings`) brauchen eine echte Benutzer-Sitzung; sie sind als best-effort implementiert und mit `|| true` versehen.
+- Das Skript `scripts/install_systemd_user_service.sh` wird versucht als `kiosk` auszuführen. Falls das in der chroot-Umgebung scheitert, kannst du es nach dem ersten Boot manuell ausführen:
+
+```bash
+sudo -u kiosk bash -lc '/home/kiosk/chromium-multimonitor-kiosk/scripts/install_systemd_user_service.sh'
+```
+
+## Test-Checklist (VM)
+1. Installation mit dem Preseed durchführen (ISO oder HTTP).
+2. Nach dem ersten Boot prüfen:
+  - `id kiosk` existiert
+  - `/etc/sudoers.d/kiosk-nopasswd` ist vorhanden und hat Modus 0440
+  - `/etc/gdm3/daemon.conf.d/99_kiosk.conf` enthält `AutomaticLogin=kiosk` und `WaylandEnable=false`
+  - Repo ist unter `/home/kiosk/chromium-multimonitor-kiosk` geklont
+  - Scripts in `/home/kiosk/chromium-multimonitor-kiosk` sind ausführbar
+3. Optional: Melde dich als `kiosk` an (lokal/SSH) und führe `systemctl --user status` aus, um user Units zu prüfen.
+
+## Anpassungen, die du wahrscheinlich machen willst
+- Passwort: Unbedingt anpassen (siehe Passwort-Hash oben).
+- Partitionierung: Wenn du mehrere Disks/Partitionen brauchst, passe die `partman-auto/expert_recipe` an.
+- Pakete: Prüfe noch einmal, ob alle Paketnamen in `pkgsel/include` auf Debian 13 verfügbar sind (besonders GUI/Chromium-Pakete können je nach Mirror abweichen).
+
 Anleitung: cloud-init für Debian 13 (Kiosk)
 
 Datei: `cloud-init/kiosk-debian13.yaml`
