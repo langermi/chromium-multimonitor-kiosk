@@ -305,6 +305,15 @@ print_config_summary
 # Prüfe Abhängigkeiten und Rechte jetzt, damit Meldungen ins Log gehen
 check_prereqs
 
+# Validierung: PAGE_REFRESH_INTERVAL vs REFRESH_INACTIVITY_THRESHOLD
+if [ "${PAGE_REFRESH_INTERVAL:-0}" -lt "${REFRESH_INACTIVITY_THRESHOLD:-0}" ]; then
+  log_error "Konfigurationsfehler: PAGE_REFRESH_INTERVAL (${PAGE_REFRESH_INTERVAL}s) ist kleiner als REFRESH_INACTIVITY_THRESHOLD (${REFRESH_INACTIVITY_THRESHOLD}s). Bitte korrigieren."
+  exit 1
+fi
+
+# Info-Hinweis: Watchdog-Verhalten beim Start
+log "Hinweis: Reboot/Poweroff/Refresh/Chromium-Neustart werden erst nach Ablauf von CHECK_INTERVAL (${CHECK_INTERVAL}s) aktiv. Dadurch können sich Reboots, Poweroff und Refreshes um diese Zeit verzögern." 
+
 # Funktion für Systemneustart
 restart_system() {
   log "Automatischer Neustart um $RESTART_TIME ausgelöst"
@@ -552,7 +561,7 @@ while true; do
   # Sekunden seit Mitternacht (für robuste Zeitvergleichs-Logik)
   prev_mod=$(( prev_check_time % 86400 ))
   now_mod=$(( now % 86400 ))
-  if (( now - last_refresh_time > PAGE_REFRESH_INTERVAL )); then
+  if (( now - last_refresh_time >= PAGE_REFRESH_INTERVAL )); then
       # Inaktivitätsdauer auslesen (in Sekunden) mit xprintidle
       if command -v xprintidle &>/dev/null; then
         idle_time_ms=$(xprintidle)
@@ -588,13 +597,13 @@ while true; do
             log "Refresh für Monitor $m übersprungen (deaktiviert)."
           fi
         done
-  # Aligniere last_refresh_time so, dass die nächsten Refreshes wieder
-  # im korrekten Rhythmus erfolgen, auch wenn mehrere Intervalle verpasst wurden.
-  elapsed=$(( now - last_refresh_time ))
-  # Restzeit bis zum nächsten vollen Intervall
-  remainder=$(( elapsed % PAGE_REFRESH_INTERVAL ))
-  # Setze last_refresh_time so, dass der nächste erwartete = jetzt + (PAGE_REFRESH_INTERVAL - verbleibende Zeit)
-  last_refresh_time=$(( now - remainder ))
+        # Aligniere last_refresh_time so, dass die nächsten Refreshes wieder
+        # im korrekten Rhythmus erfolgen, auch wenn mehrere Intervalle verpasst wurden.
+        elapsed=$(( now - last_refresh_time ))
+        # Restzeit bis zum nächsten vollen Intervall
+        remainder=$(( elapsed % PAGE_REFRESH_INTERVAL ))
+        # Setze last_refresh_time so, dass der nächste erwartete = jetzt + (PAGE_REFRESH_INTERVAL - verbleibende Zeit)
+        last_refresh_time=$(( now - remainder ))
       else
         log "Refresh übersprungen. System ist aktiv (Inaktivität: $idle_seconds s)."
       fi
