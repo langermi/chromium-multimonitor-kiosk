@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Wenn das Skript mit `sh scriptname` (dash) gestartet wird, re-exec mit bash.
+if [ -z "${BASH_VERSION:-}" ]; then
+  if command -v bash >/dev/null 2>&1; then
+    exec bash "$0" "$@"
+  else
+    echo "Dieses Skript benötigt bash. Bitte führen Sie es mit: bash $0" >&2
+    exit 1
+  fi
+fi
+
 # Erzeugt eine GNOME Autostart-.desktop Datei, die startkiosk.sh aus dem Repository-Verzeichnis startet.
 # Verwendung: ./create_gnome_autostart_desktop.sh [--hidden]
 

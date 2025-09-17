@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Wenn das Skript mit `sh scriptname` (dash) gestartet wird, können bash-spezifische
+# Konstrukte wie [[, ${BASH_SOURCE[0]} oder set -o pipefail Fehler verursachen.
+# Re-exec mit bash, falls wir nicht bereits in einer Bash laufen.
+if [ -z "${BASH_VERSION:-}" ]; then
+  if command -v bash >/dev/null 2>&1; then
+    exec bash "$0" "$@"
+  else
+    echo "Dieses Skript benötigt bash. Bitte führen Sie es mit: bash $0" >&2
+    exit 1
+  fi
+fi
+
 # Installiert eine systemd --user Unit, die startkiosk.sh aus dem Repository-Verzeichnis startet.
 # Verwendung: ./install_systemd_user_service.sh [--enable]
 

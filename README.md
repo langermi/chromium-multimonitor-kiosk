@@ -14,8 +14,8 @@ Dieses Bash-basierte Kiosk-System startet pro erkanntem Monitor eine eigene Chro
 
 ```bash
 # Clone das Repo an einen Ort deiner Wahl (z.B. $HOME/<repo-dir>) oder arbeite direkt im geklonten Repo-Ordner
-git clone https://github.com/langermi/chromium-multimonitor-kiosk.git my-kiosk-repo
-cd my-kiosk-repo
+git clone https://github.com/langermi/chromium-multimonitor-kiosk.git
+cd chromium-multimonitor-kiosk
 chmod +x startkiosk.sh config.sh scripts/install_systemd_user_service.sh scripts/create_gnome_autostart_desktop.sh
 ```
 
