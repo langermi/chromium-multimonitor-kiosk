@@ -22,6 +22,7 @@ RESTART_TIME="23:00"
 
 # Log-Rotation und Watchdog
 MAX_LOGS=7
+LOG_DEBUG=0
 CHECK_INTERVAL=10
 
 # Soll das Skript Power-/Screensaver-Einstellungen automatisch setzen?

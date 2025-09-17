@@ -1,13 +1,4 @@
-# Multi-monitor kKiosk System mit Chromium unter Debian 13
-
-Dieses Bash-basierte Kiosk-System startet pro erkanntem Monitor eine eigene Chromium-Instanz im Vollbildmodus. URLs können global und monitor-spezifisch gesteuert werden, Workspaces werden je Monitor isoliert, Logs rotieren automatisch, und ein Watchdog startet abgestürzte Instanzen neu.
-
----
-
-## Überblick
-
-- **Automatische Monitorerkennung:** Liest Auflösung, Position und Rotation per `xrandr` aus.
-# Multi-monitor kKiosk System mit Chromium
+# Multi-monitor Kiosk System mit Chromium
 
 Dieses Bash-basierte Kiosk-System startet pro erkanntem Monitor eine eigene Chromium-Instanz im Vollbildmodus. URLs können global und monitor-spezifisch gesteuert werden, Workspaces werden je Monitor isoliert, Logs rotieren automatisch, und ein Watchdog startet abgestürzte Instanzen neu.
 
@@ -22,10 +13,8 @@ Dieses Bash-basierte Kiosk-System startet pro erkanntem Monitor eine eigene Chro
 ## Repository klonen
 
 ```bash
-mkdir $HOME/kiosk-system
-cd $HOME/kiosk-system
-git clone https://github.com/langermi/chromium-multimonitor-kiosk.git .
-chmod +x startkiosk.sh config.sh
+git clone https://github.com/langermi/chromium-multimonitor-kiosk.git
+chmod +x startkiosk.sh config.sh scripts/install_systemd_user_service.sh scripts/create_gnome_autostart_desktop.sh
 ```
 
 ## Projektstruktur
@@ -162,10 +151,14 @@ After=graphical.target
 [Service]
 Type=simple
 Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
 WorkingDirectory=%h/kiosk-system
+TimeoutStartSec=120
 ExecStart=/bin/bash -lc "sleep 10 && $HOME/kiosk-system/startkiosk.sh"
-Restart=always
+Restart=on-failure
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target
