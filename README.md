@@ -13,16 +13,18 @@ Dieses Bash-basierte Kiosk-System startet pro erkanntem Monitor eine eigene Chro
 ## Repository klonen
 
 ```bash
-git clone https://github.com/langermi/chromium-multimonitor-kiosk.git
+# Clone das Repo an einen Ort deiner Wahl (z.B. $HOME/<repo-dir>) oder arbeite direkt im geklonten Repo-Ordner
+git clone https://github.com/langermi/chromium-multimonitor-kiosk.git my-kiosk-repo
+cd my-kiosk-repo
 chmod +x startkiosk.sh config.sh scripts/install_systemd_user_service.sh scripts/create_gnome_autostart_desktop.sh
 ```
 
 ## Projektstruktur
 
-Standardstruktur (bei Default-BASEDIR `$HOME/kiosk-system`):
+Standardstruktur (bei Default-BASEDIR: Verzeichnis des Repositories, siehe `config.sh`):
 
 ```
-kiosk-system/
+<repo-dir>/
 ├── config.sh          # Basiskonfiguration, Pfade, Konstanten
 ├── startkiosk.sh      # Hauptskript (Erkennung, Start, Watchdog)
 ├── urls.ini           # URL-Zuweisungen pro Monitor
@@ -44,7 +46,7 @@ Hinweis: `xprintidle` wird zur Inaktivitätsprüfung für automatische Seitenern
 Die folgenden Werte sind die Standard-Werte, wie sie in `config.sh` gesetzt sind. Passe sie dort an oder exportiere überschreibende Umgebungsvariablen vor dem Start.
 
 - DISPLAY=:0
-- BASEDIR="$HOME/kiosk-system"
+- BASEDIR="(standardmäßig) Verzeichnis des geklonten Repositories (siehe config.sh)
 - LOGDIR="$BASEDIR/logs"
 - WORKSPACES="$BASEDIR/workspaces"
 - URLS_INI="$BASEDIR/urls.ini"
@@ -68,8 +70,8 @@ Bitte verwende `config.sh` als Referenz; die Datei enthält die komplette Standa
 
 ## Logging — wie das Skript loggt
 
-- Per-run logs: `config.sh` erzeugt pro Startzeitpunkt Timestamped-Logs (`kiosk-start-YYYY-MM-DD_HH-MM-SS.log` und `kiosk-error-...`).
-- Laufender täglicher Log: `startkiosk.sh` schreibt standardmäßig in `logs/kiosk-YYYY-MM-DD.log` und taggt Fehler/STDERR. Diese Datei wird bei Bedarf per size-rotation (siehe `MAX_LOG_SIZE`) rotiert.
+- Per-run logs: `config.sh` erzeugt pro Startzeitpunkt Timestamped-Logs (`<repo>-start-YYYY-MM-DD_HH-MM-SS.log` und `<repo>-error-...`).
+- Laufender täglicher Log: `startkiosk.sh` schreibt standardmäßig in `logs/<repo>-YYYY-MM-DD.log` und taggt Fehler/STDERR. Diese Datei wird bei Bedarf per size-rotation (siehe `MAX_LOG_SIZE`) rotiert.
 - Tägliche Kompression: Logs älter als 1 Tag werden gzipped; es werden maximal `MAX_LOGS` Archive aufbewahrt.
 - JSON-Modus: Setze `LOG_FORMAT=json` für maschinenlesbare Einträge.
 - Optional: `LOG_TO_JOURNAL=true` leitet Logs zusätzlich an systemd/journald (`logger`) weiter.
@@ -141,7 +143,7 @@ Wichtig: Monitor-Namen werden aus `xrandr --query` entnommen, in Kleinbuchstaben
 
 ### Autostart als systemd user service (empfohlen als user unit)
 
-Beispiel `~/.config/systemd/user/kiosk.service` (passe WorkingDirectory/ExecStart an):
+Beispiel `~/.config/systemd/user/<repo>.service` (passe WorkingDirectory/ExecStart an):
 
 ```ini
 [Unit]
@@ -152,9 +154,9 @@ After=graphical.target
 Type=simple
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=%h/.Xauthority
-WorkingDirectory=%h/kiosk-system
+WorkingDirectory=%h/<repo-dir>
 TimeoutStartSec=120
-ExecStart=/bin/bash -lc "sleep 10 && $HOME/kiosk-system/startkiosk.sh"
+ExecStart=/bin/bash -lc "sleep 10 && %h/<repo-dir>/startkiosk.sh"
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -168,7 +170,7 @@ Aktivieren:
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now kiosk.service
+systemctl --user enable --now <repo>.service
 ```
 
 Hinweis: `graphical.target` oder der genaue Target-Name kann distributionsabhängig variieren.
@@ -176,10 +178,11 @@ Hinweis: `graphical.target` oder der genaue Target-Name kann distributionsabhän
 ### Alternativ: Autostart als .desktop-Datei (GNOME)
 
 ```ini
-# ~/.config/autostart/kiosk.desktop
+[Desktop Entry]
+# ~/.config/autostart/<repo>.desktop
 [Desktop Entry]
 Type=Application
-Exec=bash -c "sleep 10 && $HOME/kiosk-system/startkiosk.sh"
+Exec=bash -c "sleep 10 && %h/<repo-dir>/startkiosk.sh"
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true

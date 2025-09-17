@@ -23,7 +23,9 @@ else
 fi
 
 AUTOSTART_DIR="$HOME/.config/autostart"
-DESKTOP_PATH="$AUTOSTART_DIR/kiosk.desktop"
+# Verwende Repo-Basename für Desktop-Datei
+REPO_BASENAME="$(basename "$KIOSK_DIR")"
+DESKTOP_PATH="$AUTOSTART_DIR/${REPO_BASENAME}.desktop"
 
 mkdir -p "$AUTOSTART_DIR"
 
@@ -38,7 +40,26 @@ if $HIDDEN; then
   NO_DISPLAY="true"
 fi
 
+[Desktop Entry]
+Type=Application
+Exec=bash -c "sleep 10 && ${KIOSK_DIR}/startkiosk.sh"
+Hidden=false
+NoDisplay=${NO_DISPLAY}
+X-GNOME-Autostart-enabled=true
+Name=Start Kiosk
+Comment=Startet das Kiosk-System mit 10 Sekunden Verzögerung
+EOF
+
 cat > "$DESKTOP_PATH" <<EOF
+[Desktop Entry]
+Type=Application
+Exec=bash -c "sleep 10 && ${KIOSK_DIR}/startkiosk.sh"
+Hidden=false
+NoDisplay=${NO_DISPLAY}
+X-GNOME-Autostart-enabled=true
+Name=Start ${REPO_BASENAME}
+Comment=Startet das ${REPO_BASENAME} mit 10 Sekunden Verzögerung
+EOF
 [Desktop Entry]
 Type=Application
 Exec=bash -c "sleep 10 && ${KIOSK_DIR}/startkiosk.sh"

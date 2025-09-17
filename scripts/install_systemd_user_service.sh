@@ -25,7 +25,9 @@ else
 fi
 
 UNIT_DIR="$HOME/.config/systemd/user"
-UNIT_PATH="$UNIT_DIR/kiosk.service"
+# Verwende den Repo-Basename als Service-Name (z.B. 'chromium-multimonitor-kiosk.service')
+REPO_BASENAME="$(basename "$KIOSK_DIR")"
+UNIT_PATH="$UNIT_DIR/${REPO_BASENAME}.service"
 
 mkdir -p "$UNIT_DIR"
 
@@ -63,14 +65,14 @@ echo "Systemd user Unit wurde unter $UNIT_PATH installiert"
 if $ENABLE; then
   if command -v systemctl >/dev/null 2>&1; then
     echo "Lade user systemd-Daemon neu und aktiviere/starte den Dienst..."
-    systemctl --user daemon-reload
-    systemctl --user enable --now kiosk.service
-    echo "Dienst wurde aktiviert und gestartet (user Unit)."
+  systemctl --user daemon-reload
+  systemctl --user enable --now "${REPO_BASENAME}.service"
+  echo "Dienst wurde aktiviert und gestartet (user Unit ${REPO_BASENAME}.service)."
   else
-    echo "systemctl wurde nicht im PATH gefunden; Unit wurde installiert, kann aber nicht aktiviert/gestartet werden. Sie können es später mit ausführen: systemctl --user daemon-reload && systemctl --user enable --now kiosk.service" >&2
+  echo "systemctl wurde nicht im PATH gefunden; Unit wurde installiert, kann aber nicht aktiviert/gestartet werden. Sie können es später mit ausführen: systemctl --user daemon-reload && systemctl --user enable --now ${REPO_BASENAME}.service" >&2
   fi
 else
-  echo "Unit wurde installiert. Um den Dienst zu aktivieren und zu starten, führen Sie aus: systemctl --user daemon-reload && systemctl --user enable --now kiosk.service"
+  echo "Unit wurde installiert. Um den Dienst zu aktivieren und zu starten, führen Sie aus: systemctl --user daemon-reload && systemctl --user enable --now ${REPO_BASENAME}.service"
 fi
 
 exit 0
