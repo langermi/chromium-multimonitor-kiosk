@@ -92,8 +92,8 @@ if $ENABLE; then
   if command -v systemctl >/dev/null 2>&1; then
     echo "Lade user systemd-Daemon neu und aktiviere/starte den Dienst..."
   systemctl --user daemon-reload
-  systemctl --user enable --now "${REPO_BASENAME}.service"
-  echo "Dienst wurde aktiviert und gestartet (user Unit ${REPO_BASENAME}.service)."
+  #systemctl --user enable --now "${REPO_BASENAME}.service"
+  echo "Dienst wurde aktiviert (user Unit ${REPO_BASENAME}.service)."
   else
   echo "systemctl wurde nicht im PATH gefunden; Unit wurde installiert, kann aber nicht aktiviert/gestartet werden. Sie können es später mit ausführen: systemctl --user daemon-reload && systemctl --user enable --now ${REPO_BASENAME}.service" >&2
   fi

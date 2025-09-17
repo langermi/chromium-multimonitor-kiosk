@@ -1,0 +1,136 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - dbus-user-session
+  - systemd
+  - xserver-xorg
+  - gdm3
+  - xinit
+  - chromium
+  - xdotool
+  - x11-xserver-utils
+  - xrandr
+  - gsettings-desktop-schemas
+  - curl
+  - xprintidle
+  - git
+  - libpam-gnome-keyring
+  - gnome-keyring
+  - policykit-1
+  - sed
+
+users:
+  - name: kiosk
+    gecos: "Kiosk User"
+    groups: [sudo,video]
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD: /bin/systemctl reboot, /bin/systemctl poweroff']
+    create_home: true
+
+chpasswd:
+  list: |
+    kiosk:kioskpass
+  expire: False
+
+ssh_pwauth: True
+
+write_files:
+  - path: /etc/sudoers.d/kiosk-nopasswd
+    owner: root:root
+    permissions: '0440'
+    content: |
+      # Allow kiosk to reboot/poweroff without a password
+      kiosk ALL=(ALL) NOPASSWD: /bin/systemctl reboot, /bin/systemctl poweroff
+
+  - path: /etc/gdm3/daemon.conf.d/99_kiosk.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [daemon]
+      AutomaticLoginEnable=true
+      AutomaticLogin=kiosk
+      # Disable Wayland to keep xdotool/xrandr working reliably
+      WaylandEnable=false
+
+  - path: /home/kiosk/.config/systemd/user/chromium-kiosk.service
+    owner: kiosk:kiosk
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Chromium Multi-monitor Kiosk (user service)
+      After=graphical.target
+
+      [Service]
+      Type=simple
+      Environment=DISPLAY=:0
+      WorkingDirectory=/home/kiosk/chromium-multimonitor-kiosk
+      ExecStart=/bin/bash -lc "sleep 10 && /home/kiosk/chromium-multimonitor-kiosk/startkiosk.sh"
+      Restart=on-failure
+      RestartSec=10
+
+      [Install]
+      WantedBy=default.target
+
+  # Prevent gnome-keyring components from auto-starting (pragmatic: avoids password prompts on autologin).
+  - path: /home/kiosk/.config/autostart/gnome-keyring-secrets.desktop
+    owner: kiosk:kiosk
+    permissions: '0644'
+    content: |
+      [Desktop Entry]
+      Type=Application
+      Name=Disable GNOME Keyring Secrets
+      Comment=Disable GNOME Keyring Secrets autostart for kiosk autologin
+      X-GNOME-Autostart-enabled=false
+
+  - path: /home/kiosk/.config/autostart/gnome-keyring-pkcs11.desktop
+    owner: kiosk:kiosk
+    permissions: '0644'
+    content: |
+      [Desktop Entry]
+      Type=Application
+      Name=Disable GNOME Keyring PKCS11
+      X-GNOME-Autostart-enabled=false
+
+  - path: /home/kiosk/.config/autostart/gnome-keyring-ssh.desktop
+    owner: kiosk:kiosk
+    permissions: '0644'
+    content: |
+      [Desktop Entry]
+      Type=Application
+      Name=Disable GNOME Keyring SSH
+      X-GNOME-Autostart-enabled=false
+
+runcmd:
+  # Ensure home exists and ownerships are correct
+  - [ bash, -lc, "mkdir -p /home/kiosk; chown -R kiosk:kiosk /home/kiosk" ]
+
+  # Enable lingering so systemd --user can run without an interactive login
+  - [ bash, -lc, "loginctl enable-linger kiosk || true" ]
+
+  # Clone (or update) the kiosk repo into the kiosk home
+  - [ sudo, -u, kiosk, bash, -lc, "if [ -d /home/kiosk/chromium-multimonitor-kiosk/.git ]; then cd /home/kiosk/chromium-multimonitor-kiosk && git pull; else git clone https://github.com/langermi/chromium-multimonitor-kiosk.git /home/kiosk/chromium-multimonitor-kiosk; fi" ]
+
+  # Ensure scripts are executable
+  - [ bash, -lc, "chmod +x /home/kiosk/chromium-multimonitor-kiosk/startkiosk.sh || true" ]
+  - [ bash, -lc, "chmod +x /home/kiosk/chromium-multimonitor-kiosk/config.sh || true" ]
+  - [ bash, -lc, "chmod +x /home/kiosk/chromium-multimonitor-kiosk/scripts/*.sh || true" ]
+
+  # Make sure files created by cloud-init are owned by kiosk
+  - [ bash, -lc, "chown -R kiosk:kiosk /home/kiosk/.config || true" ]
+
+  # Reload user systemd and enable the user service (linger makes this possible)
+  - [ bash, -lc, "sudo -u kiosk systemctl --user daemon-reload || true" ]
+  - [ bash, -lc, "sudo -u kiosk systemctl --user enable --now chromium-kiosk.service || true" ]
+
+  # Install 'No overview at start-up' GNOME extension (no-overview@fthx)
+  # Clone the upstream repo and copy to system extension dir so it's available to all users
+  - [ bash, -lc, "EXT_UUID=no-overview@fthx; TMPDIR=/tmp/no-overview; rm -rf \"$TMPDIR\"; git clone https://github.com/fthx/no-overview.git \"$TMPDIR\" || true; if [ -d \"$TMPDIR\" ]; then mkdir -p /usr/share/gnome-shell/extensions/$EXT_UUID; cp -r $TMPDIR/* /usr/share/gnome-shell/extensions/$EXT_UUID/; chown -R root:root /usr/share/gnome-shell/extensions/$EXT_UUID || true; fi" ]
+
+  # Enable the extension for the kiosk user by adding it to enabled-extensions (merge with existing)
+  - [ bash, -lc, "sudo -u kiosk dbus-launch gsettings set org.gnome.shell enabled-extensions \"$(sudo -u kiosk dbus-launch gsettings get org.gnome.shell enabled-extensions | sed -E 's/\[|\]//g' | awk -v ext=\"no-overview@fthx\" '{gsub(/\x27/,\"\"); if(index($0,ext)) {print \"[\"$0\"]\"; exit} if(length($0)==0) print \"[\\\'no-overview@fthx\\\']\"; else print \"[\"$0\", \\\'no-overview@fthx\\\']\" }')\" || true" ]
+
+  # Optional: allow kiosk to start a graphical session automatically on next boot (gdm autologin set above)
+  - [ bash, -lc, "systemctl restart gdm3 || true" ]
+
+final_message: "Kiosk provisioning finished. Please change the default kiosk password and adjust settings as needed."
