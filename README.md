@@ -155,7 +155,7 @@ Type=simple
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=%h/.Xauthority
 WorkingDirectory=%h/<repo-dir>
-TimeoutStartSec=120
+TimeoutStartSec=10
 ExecStart=/bin/bash -lc "sleep 10 && %h/<repo-dir>/startkiosk.sh"
 Restart=on-failure
 RestartSec=10
