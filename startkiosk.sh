@@ -4,12 +4,6 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 source "$SCRIPT_DIR/config.sh"
 
-# Strikte Bash-Optionen: Fehler früh erkennen, keine stillen Fehlzustände
-# Wird nach dem Einlesen der Konfiguration gesetzt, damit fehlende Variablen
-# aus der Config sauber erkannt werden.
-set -o errexit
-set -o nounset
-set -o pipefail
 # Sichere IFS-Initialisierung
 IFS=$'\n\t'
 
@@ -33,16 +27,21 @@ LOGFILE="${LOGDIR}/kiosk-$(date '+%F').log"
 # Debug per ENV aktivierbar: setze LOG_DEBUG=1 um Debug-Logging zu aktivieren
 LOG_DEBUG="${LOG_DEBUG:-0}"
 # STDERR umleiten: Jede Zeile wird getaggt und in das tägliche Log geschrieben
+# Speichere das originale STDERR (Konsole) auf FD 3, damit wir die Fehlermeldungen
+# zusätzlich zur Log-Datei wieder an die Konsole ausgeben können.
+exec 3>&2
 exec 2> >(
   while IFS= read -r line; do
     ts="$(date '+%F %T')"
     if [ "${LOG_FORMAT:-text}" = "json" ]; then
-  # Anführungszeichen und Backslashes für JSON escapen
+      # Anführungszeichen und Backslashes für JSON escapen
       esc=$(printf '%s' "$line" | sed -e 's/\\/\\\\/g' -e 's/"/\\\"/g')
       printf '{"ts":"%s","level":"ERROR","msg":"%s"}\n' "$ts" "$esc" >>"$LOGFILE"
     else
       printf '%s [ERROR] %s\n' "$ts" "$line" >>"$LOGFILE"
     fi
+    # Gebe die Original-Fehlermeldung zusätzlich an den gespeicherten STDERR (FD 3)
+    printf '%s\n' "$line" >&3
     if [ "${LOG_TO_JOURNAL:-false}" = true ]; then
       printf '%s\n' "$line" | logger -t "${LOG_TAG:-kiosk}" -p user.err
     fi
@@ -105,12 +104,6 @@ check_prereqs() {
     fi
   fi
 }
-
-# Testmodus aktivieren
-if [[ "$1" == "--test" ]]; then
-  TESTMODE=1
-  echo "Testmodus aktiviert – Chromium start Übersprungen"
-fi
 
 # Logging-Funktionen (ein Logfile, mit Level-Tags)
 # ANSI-Farbcodes für die Konsole
@@ -239,6 +232,28 @@ log_debug() {
   fi
 }
 
+# Drucke eine kurze, lesbare Zusammenfassung wichtiger Konfigurationsvariablen
+print_config_summary() {
+  log "Konfiguration (Kurzüberblick):"
+  log "  BASEDIR=$BASEDIR"
+  log "  LOGDIR=$LOGDIR"
+  log "  WORKSPACES=$WORKSPACES"
+  log "  URLS_INI=$URLS_INI"
+  log "  DEFAULT_URL=${DEFAULT_URL:-(unset)}"
+  log "  CHROMIUM_BIN=${CHROMIUM_BIN:-(not found)}"
+  log "  CHROMIUM_CONFIG=${CHROMIUM_CONFIG:-(unset)}"
+  log "  CHECK_INTERVAL=${CHECK_INTERVAL:-(unset)}s"
+  log "  PAGE_REFRESH_INTERVAL=${PAGE_REFRESH_INTERVAL:-(unset)}s"
+  log "  REFRESH_INACTIVITY_THRESHOLD=${REFRESH_INACTIVITY_THRESHOLD:-(unset)}s"
+  log "  APPLY_POWER_SETTINGS=${APPLY_POWER_SETTINGS:-true}"
+  log "  ENABLE_RESTART=${ENABLE_RESTART:-true} RESTART_TIME=${RESTART_TIME:-(unset)}"
+  log "  ENABLE_POWEROFF=${ENABLE_POWEROFF:-false} POWEROFF_TIME=${POWEROFF_TIME:-(unset)}"
+  log "  LOG_FORMAT=${LOG_FORMAT:-text} LOG_TO_JOURNAL=${LOG_TO_JOURNAL:-false} LOG_DEBUG=${LOG_DEBUG:-0}"
+  log "  MAX_LOGS=${MAX_LOGS:-7} MAX_LOG_SIZE=${MAX_LOG_SIZE:-0} LOG_MAX_BACKUPS=${LOG_MAX_BACKUPS:-5}"
+  # Verbale Debug-Ausgabe der Chromium-Flags (nicht in main-log, sondern nur im Debug-Log)
+  log_debug "CHROMIUM_FLAGS=${CHROMIUM_FLAGS[*]:-(none)}"
+}
+
 # URLs aus der Konfiguration validieren
 validate_urls() {
     local url_valid=true
@@ -276,6 +291,9 @@ rotate_logs
 log "=== Kiosk-Skript gestartet ==="
 log_debug "CONFIG: CHECK_INTERVAL=$CHECK_INTERVAL PAGE_REFRESH_INTERVAL=$PAGE_REFRESH_INTERVAL RESTART_TIME=$RESTART_TIME POWEROFF_TIME=$POWEROFF_TIME LOG_DEBUG=$LOG_DEBUG"
 log "Logging in $LOGFILE"
+
+# Schreibe eine Kurz-Zusammenfassung der wichtigsten Konfigurationswerte ins Log
+print_config_summary
 
 # Prüfe Abhängigkeiten und Rechte jetzt, damit Meldungen ins Log gehen
 check_prereqs
@@ -457,11 +475,6 @@ start_chromium() {
   local ws=${WS_DIR[$m]}
 
   log "Starte Chromium auf $m → $url"
-  if [ "${TESTMODE:-0}" -eq 1 ]; then
-    log "Testmodus – Start übersprungen"
-    MON_PID["$m"]=0
-    return
-  fi
 
   "$CHROMIUM_BIN" \
     "${CHROMIUM_FLAGS[@]}" \
@@ -545,7 +558,6 @@ while true; do
       else
         log "Refresh übersprungen. System ist aktiv (Inaktivität: $idle_seconds s)."
       fi
-    fi
   fi  # Zeit prüfen und ggf. Neustart auslösen
   # Prüfe, ob die konfigurierten Zeiten (Restart / Poweroff) zwischen prev_check_time und jetzt lagen.
   # Vergleiche auf Sekunden seit Mitternacht das vermeidet verpasste Trigger bei großen CHECK_INTERVAL.

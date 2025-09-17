@@ -18,7 +18,15 @@ Dieses Bash-basierte Kiosk-System startet pro erkanntem Monitor eine eigene Chro
 - Fenstersteuerung & Vollbild via `xdotool`
 - Watchdog überwacht Chromium-PIDs, rekreiert Workspaces und startet Instanzen neu
 - Logging: tägliche Logs + size-basierte Rotation, optional JSON-Output und Weiterleitung an journald
-- Testmodus: `./startkiosk.sh --test` (kein Chromium-Start)
+
+## Repository klonen
+
+```bash
+mkdir $HOME/kiosk-system
+cd $HOME/kiosk-system
+git clone https://github.com/langermi/chromium-multimonitor-kiosk.git .
+chmod +x startkiosk.sh config.sh
+```
 
 ## Projektstruktur
 
