@@ -136,29 +136,31 @@ rotate_by_size() {
 
 # Prüfe, ob der aktuelle Benutzer Neustart/Poweroff ohne interaktives Passwort ausführen kann
 can_execute_reboot_or_poweroff() {
-  # Prüfe, ob der Benutzer Neustart/Poweroff durchführen kann.
-  # `systemctl --user` ermöglicht normalerweise kein System-Reboot
 
-  # Teste mit sudo -n (non-interactive), ob sudo ohne Passwort möglich ist
+  # 1) Voller passwordless sudo (sudo -n true) -> erlaubt
   if sudo -n true 2>/dev/null; then
     log_debug "can_execute_reboot_or_poweroff: sudo -n true -> allowed"
     return 0
   fi
 
-  # Prüfe explizit, ob spezielle Befehle per sudo ohne Passwort ausführbar sind
-  if sudo -n systemctl reboot &>/dev/null; then
-    log_debug "can_execute_reboot_or_poweroff: sudo -n systemctl reboot -> allowed"
-    return 0
-  fi
-  if sudo -n /sbin/reboot &>/dev/null; then
-    log_debug "can_execute_reboot_or_poweroff: sudo -n /sbin/reboot -> allowed"
-    return 0
-  fi
+  # 2) Frage nach erlaubten sudo-Befehlen ohne Passwort (sichere Abfrage)
+  local sudo_list
+  sudo_list=$(sudo -n -l 2>&1) || sudo_list="$sudo_list"
 
-  # Falls polkit die direkte Ausführung von `systemctl reboot` ohne sudo erlaubt,
-  # kann ein Aufruf ohne Passwort erfolgreich sein. Wir testen eine harmlose
-  # systemctl-Abfrage auf dieselbe Weise — falls sie erfolgreich ist, zählen
-  # wir das nicht automatisch als Berechtigung zum Reboot (safety-first).
+  # Wenn sudo -n -l überhaupt etwas zurückliefert, parsen wir es nach erlaubten
+  # Reboot/Poweroff-Kommandos oder nach NOPASSWD: ALL.
+  if [ -n "$sudo_list" ]; then
+    # Prüfe auf konkrete erlaubte Kommandos
+    if echo "$sudo_list" | grep -E -q '/sbin/(reboot|poweroff)\b|\breboot\b|\bpoweroff\b|systemctl[^\n]*reboot|systemctl[^\n]*poweroff'; then
+      log_debug "can_execute_reboot_or_poweroff: sudo -l zeigt reboot/poweroff erlaubt"
+      return 0
+    fi
+    # Prüfe auf generelle NOPASSWD-Regel (z.B. NOPASSWD: ALL)
+    if echo "$sudo_list" | grep -E -q 'NOPASSWD:.*ALL|NOPASSWD:\s*\b(reboot|poweroff)\b'; then
+      log_debug "can_execute_reboot_or_poweroff: sudo -l zeigt NOPASSWD-Regel -> allowed"
+      return 0
+    fi
+  fi
 
   return 1
 }
