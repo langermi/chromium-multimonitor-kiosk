@@ -17,15 +17,26 @@ EXTENSION_NAME="No overview at startup"
 
 log "Installiere GNOME Extension: $EXTENSION_NAME"
 
-# Prüfe ob GNOME Shell läuft
-if ! pgrep -x "gnome-shell" > /dev/null; then
-    log "Fehler: GNOME Shell läuft nicht. Bitte in einer GNOME Session ausführen."
-    exit 1
+# Prüfe ob GNOME Shell läuft. Statt abzubrechen, nur Warnung ausgeben.
+# Auf vielen Kiosk-Build-Systemen läuft GNOME hier nicht; wir wollen dennoch
+# die Metadata-Auswahl basierend auf der Major-Version durchführen können.
+if ! pgrep -x "gnome-shell" > /dev/null 2>&1; then
+    log "Warnung: GNOME Shell läuft nicht. Fortfahren; GNOME-Version wird versucht zu ermitteln oder auf Major 43 (Debian 13) gesetzt."
 fi
 
-# GNOME Shell Version ermitteln
-GNOME_VERSION=$(gnome-shell --version | sed 's/GNOME Shell //' | cut -d'.' -f1,2)
-log "GNOME Shell Version: $GNOME_VERSION"
+# GNOME Shell Major-Version ermitteln (nur die Major-Nummer, z.B. "43" für Debian 13)
+# Wir lesen nur die Major-Version, weil extensions.gnome.org in der shell_version_map
+# häufig Keys wie "43" oder "43.1" hat. Für Debian 13 ist die Major-Version 43.
+# Ermögliche Überschreiben per Umgebungsvariable (z.B. in CI): GNOME_MAJOR_OVERRIDE=43
+GNOME_MAJOR=${GNOME_MAJOR_OVERRIDE:-$(gnome-shell --version 2>/dev/null | sed 's/GNOME Shell //' | cut -d'.' -f1 || true)}
+# Falls wir die Version nicht ermitteln können (z.B. kein gnome-shell installiert),
+# für Debian 13 die Major-Version 43 standardmäßig verwenden.
+if [[ -z "${GNOME_MAJOR:-}" ]]; then
+    GNOME_MAJOR="43"
+    log "GNOME Major-Version konnte nicht ermittelt werden — verwende Standard: $GNOME_MAJOR (Debian 13)"
+else
+    log "GNOME Shell Major-Version: $GNOME_MAJOR"
+fi
 
 # Extensions-Verzeichnis erstellen
 EXTENSIONS_DIR="$HOME/.local/share/gnome-shell/extensions"
@@ -44,7 +55,7 @@ data = json.load(sys.stdin)
 print(json.dumps(data, indent=2))
 ")
 
-log "Suche kompatible Version für GNOME $GNOME_VERSION..."
+log "Suche kompatible Version für GNOME Major $GNOME_MAJOR..."
 
 # Ermittle Download-URL für die passende Version
 DOWNLOAD_URL=$(echo "$METADATA" | python3 -c "
@@ -74,9 +85,29 @@ def extract_url(obj):
         return obj
     return None
 
-# Versuche exakte Version zu finden
-target = '$GNOME_VERSION'
-entry = shell_version_map.get(target)
+# Wir prüfen nur auf die Major-Version (z.B. '43').
+# Zuerst versuchen wir einen exakten Key, danach Keys die mit '43.' beginnen
+# oder deren erster Segment '43' ist. Falls nichts passt, fällt das Skript auf den
+# bisherigen Fallback (neueste verfügbare Version) zurück.
+target = '$GNOME_MAJOR'
+entry = None
+if target:
+    # Direktes Mapping versuchen
+    entry = shell_version_map.get(target)
+    if entry is None:
+        # Suche nach Keys die mit target + '.' anfangen oder gleich target sind
+        for k in shell_version_map.keys():
+            ks = str(k)
+            if ks == target or ks.startswith(target + '.'):
+                entry = shell_version_map.get(k)
+                break
+    if entry is None:
+        # weitergehender Versuch: vergleiche das erste Segment vor einem Punkt
+        for k in shell_version_map.keys():
+            if str(k).split('.')[0] == target:
+                entry = shell_version_map.get(k)
+                break
+
 if entry is not None:
     download_url = extract_url(entry)
 else:
