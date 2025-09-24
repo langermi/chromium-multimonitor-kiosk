@@ -318,10 +318,33 @@ if [ -f "$URLS_INI" ]; then
       ALL_URLS+=("$DEFAULT_URL")
     fi
   fi
-  validate_urls "${ALL_URLS[@]}"
+  # Allow configurable retries for URL validation to survive transient network issues
+  URL_VALIDATION_RETRIES=${URL_VALIDATION_RETRIES:-3}
+  URL_VALIDATION_RETRY_INTERVAL=${URL_VALIDATION_RETRY_INTERVAL:-5}
+  for attempt in $(seq 1 "$URL_VALIDATION_RETRIES"); do
+    if validate_urls "${ALL_URLS[@]}"; then
+      break
+    fi
+    if [ "$attempt" -lt "$URL_VALIDATION_RETRIES" ]; then
+      log_warn "validate_urls failed (attempt $attempt/$URL_VALIDATION_RETRIES) - retrying in ${URL_VALIDATION_RETRY_INTERVAL}s"
+      sleep "$URL_VALIDATION_RETRY_INTERVAL"
+    else
+      log_error "validate_urls failed after $URL_VALIDATION_RETRIES attempts"
+    fi
+  done
 else
   log "WARN: urls.ini nicht gefunden. Nutze $DEFAULT_URL"
-  validate_urls "$DEFAULT_URL"
+  for attempt in $(seq 1 "$URL_VALIDATION_RETRIES"); do
+    if validate_urls "$DEFAULT_URL"; then
+      break
+    fi
+    if [ "$attempt" -lt "$URL_VALIDATION_RETRIES" ]; then
+      log_warn "validate_urls(default) failed (attempt $attempt/$URL_VALIDATION_RETRIES) - retrying in ${URL_VALIDATION_RETRY_INTERVAL}s"
+      sleep "$URL_VALIDATION_RETRY_INTERVAL"
+    else
+      log_error "validate_urls(default) failed after $URL_VALIDATION_RETRIES attempts"
+    fi
+  done
 fi
 
 # Monitore auslesen (unverändert)
