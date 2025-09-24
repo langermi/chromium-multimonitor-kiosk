@@ -48,29 +48,67 @@ log "Suche kompatible Version für GNOME $GNOME_VERSION..."
 
 # Ermittle Download-URL für die passende Version
 DOWNLOAD_URL=$(echo "$METADATA" | python3 -c "
-import json, sys
+import json, sys, re
 data = json.load(sys.stdin)
 shell_version_map = data.get('shell_version_map', {})
 download_url = None
 
+def extract_url(obj):
+    # defensive extraction of a URL from various possible structures
+    if isinstance(obj, dict):
+        for key in ('download_url', 'downloadUrl', 'package_url', 'url', 'download'):
+            v = obj.get(key)
+            if isinstance(v, str) and v:
+                return v
+        # sometimes the dict may contain nested structures
+        for v in obj.values():
+            url = extract_url(v)
+            if url:
+                return url
+    elif isinstance(obj, list):
+        for item in obj:
+            url = extract_url(item)
+            if url:
+                return url
+    elif isinstance(obj, str):
+        return obj
+    return None
+
 # Versuche exakte Version zu finden
-if '$GNOME_VERSION' in shell_version_map:
-    download_url = shell_version_map['$GNOME_VERSION']['download_url']
+target = '$GNOME_VERSION'
+entry = shell_version_map.get(target)
+if entry is not None:
+    download_url = extract_url(entry)
 else:
-    # Fallback: neueste verfügbare Version
+    # Fallback: neueste verfügbare Version (semantisch größtes Versionsschema)
     versions = list(shell_version_map.keys())
     if versions:
-        latest_version = max(versions, key=lambda x: list(map(int, x.split('.'))))
-        download_url = shell_version_map[latest_version]['download_url']
+        def version_key(x):
+            parts = re.split(r'[-._]', x)
+            nums = []
+            for p in parts:
+                try:
+                    nums.append(int(p))
+                except:
+                    break
+            return nums
+        latest_version = max(versions, key=version_key)
+        download_url = extract_url(shell_version_map.get(latest_version))
 
 if download_url:
-    print('https://extensions.gnome.org' + download_url)
+    if not download_url.startswith('http'):
+        print('https://extensions.gnome.org' + download_url)
+    else:
+        print(download_url)
 else:
     sys.exit(1)
 ")
 
 if [[ -z "$DOWNLOAD_URL" ]]; then
     log "Fehler: Keine kompatible Version gefunden!"
+    log "Hinweis: Die Struktur der Metadata-Antwort könnte sich geändert haben. Zur Fehlersuche:"
+    log "  curl -s \"$METADATA_URL\" | jq '.' > /tmp/gnome-ext-metadata.json"
+    log "  und prüfen Sie /tmp/gnome-ext-metadata.json"
     exit 1
 fi
 

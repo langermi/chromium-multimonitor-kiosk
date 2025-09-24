@@ -58,10 +58,9 @@ After=graphical.target
 Type=simple
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=%h/.Xauthority
-WorkingDirectory=%h/$KIOSK_DIR
-ExecStartPre=/bin/sleep 30
-ExecStart=/bin/bash -c '${KIOSK_DIR}/startkiosk.sh'
-TimeoutStopSec=10s
+WorkingDirectory=$KIOSK_DIR
+ExecStart=/bin/bash -c 'sleep 5 && ${KIOSK_DIR}/startkiosk.sh'
+#TimeoutStopSec=30s
 KillMode=control-group
 KillSignal=SIGTERM
 
