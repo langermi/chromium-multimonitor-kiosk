@@ -1,207 +1,96 @@
-# Multi-monitor Kiosk System mit Chromium
+# Chromium Multi-Monitor Kiosk
 
-Dieses Bash-basierte Kiosk-System startet pro erkanntem Monitor eine eigene Chromium-Instanz im Vollbildmodus. URLs können global und monitor-spezifisch gesteuert werden, Workspaces werden je Monitor isoliert, Logs rotieren automatisch, und ein Watchdog startet abgestürzte Instanzen neu.
+Dieses Projekt bietet eine robuste und flexible Lösung zum Betreiben eines Kiosk-Systems mit Chromium auf mehreren Monitoren unter Linux. Es wurde für den dauerhaften Betrieb konzipiert und enthält Mechanismen zur Selbstheilung, Protokollierung und Energieverwaltung.
 
-## Kurzübersicht
+## Hauptmerkmale
 
-- Automatische Monitorerkennung via `xrandr` (Auflösung, Position, Rotation)
-- URL-Zuweisung pro Monitor über `urls.ini` (Name oder Index)
-- Fenstersteuerung & Vollbild via `xdotool`
-- Watchdog überwacht Chromium-PIDs, rekreiert Workspaces und startet Instanzen neu
-- Logging: tägliche Logs + size-basierte Rotation, optional JSON-Output und Weiterleitung an journald
+- **Multi-Monitor-Unterstützung:** Weist verschiedenen Monitoren spezifische URLs zu.
+- **Desktop-Umgebungen:** Vorkonfigurierte Skripte für GNOME (`startkiosk-gnome.sh`) und LXDE (`startkiosk-lxde.sh`).
+- **Hohe Konfigurierbarkeit:** Zentrale Konfiguration über die Datei `config.sh`.
+- **Robustheit:** Ein Watchdog-Mechanismus überwacht die Chromium-Prozesse und startet sie bei Bedarf neu.
+- **Energieverwaltung:** Geplante, tägliche Neustarts und Herunterfahren des Systems.
+- **Umfassende Protokollierung:** Detaillierte Logs in Dateien und optional im Systemd-Journal. Log-Rotation ist integriert.
+- **Automatisierte Installation:** Enthält Debian-Preseed-Dateien zur einfachen Erstellung eines fertigen Kiosk-Systems.
+- **Inaktivitäts-Erkennung:** Kann Seiten bei Inaktivität automatisch neu laden.
 
-## Repository klonen
+## Anforderungen
 
+Stellen Sie sicher, dass die folgenden Abhängigkeiten auf dem System installiert sind:
+
+- `chromium-browser` (oder `chromium`)
+- `xdotool`
+- `xrandr`
+- `gsettings` (für die GNOME-Version)
+- `curl`
+- `xprintidle`
+
+Das System muss eine **X11-Sitzung** verwenden, Wayland wird nicht unterstützt.
+
+## Installation und Einrichtung
+
+1.  **Repository klonen:**
+    ```bash
+    git clone <repository-url>
+    cd chromium-multimonitor-kiosk
+    ```
+
+2.  **Konfiguration anpassen:**
+    -   Öffnen Sie die Datei `config.sh` und passen Sie die Variablen nach Ihren Bedürfnissen an (z.B. `ENABLE_POWEROFF`, `RESTART_TIME`, etc.).
+    -   Öffnen Sie die Datei `urls.ini`, um die URLs für die Monitore zu definieren.
+
+3.  **Skript ausführbar machen:**
+    ```bash
+    chmod +x startkiosk-gnome.sh
+    chmod +x startkiosk-lxde.sh
+    ```
+
+## Verwendung
+
+Führen Sie das entsprechende Skript für Ihre Desktop-Umgebung aus:
+
+**Für GNOME:**
 ```bash
-# Clone das Repo an einen Ort deiner Wahl (z.B. $HOME/<repo-dir>) oder arbeite direkt im geklonten Repo-Ordner
-git clone https://github.com/langermi/chromium-multimonitor-kiosk.git
-cd chromium-multimonitor-kiosk
-chmod +x startkiosk.sh config.sh scripts/install_systemd_user_service.sh scripts/create_gnome_autostart_desktop.sh
+./startkiosk-gnome.sh
 ```
 
-## Projektstruktur
-
-Standardstruktur (bei Default-BASEDIR: Verzeichnis des Repositories, siehe `config.sh`):
-
-```
-<repo-dir>/
-├── config.sh          # Basiskonfiguration, Pfade, Konstanten
-├── startkiosk.sh      # Hauptskript (Erkennung, Start, Watchdog)
-├── urls.ini           # URL-Zuweisungen pro Monitor
-└── logs/              # Logs (automatisch erstellt und rotiert)
+**Für LXDE:**
+```bash
+./startkiosk-lxde.sh
 ```
 
-## Voraussetzungen
+### Autostart
 
-- bash (dient als Interpreter für die Skripte)
-- X11 (Xorg) — Wayland wird nicht unterstützt (xdotool funktioniert unter Wayland nicht)
-- Browser: `chromium` oder `chromium-browser`
-- Tools: `xdotool`, `xrandr`, `gsettings`, `curl`, `xprintidle`
-- Optional: GNOME (empfohlen) — Extension: „No overview at startup" empfohlen
+Um das Kiosk-Skript automatisch beim Systemstart auszuführen, können Sie es in die Autostart-Konfiguration Ihrer Desktop-Umgebung aufnehmen (z.B. über `gnome-session-properties` oder durch einen Eintrag in `~/.config/autostart/`).
 
-Hinweis: `xprintidle` wird zur Inaktivitätsprüfung für automatische Seitenerneuerungen verwendet; ohne dieses Tool werden Seiten nur bedingt automatisch neu geladen.
+## Konfiguration
 
-## Wichtige Konfigurationswerte (canonical defaults aus `config.sh`)
+### `config.sh`
 
-Die folgenden Werte sind die Standard-Werte, wie sie in `config.sh` gesetzt sind. Passe sie dort an oder exportiere überschreibende Umgebungsvariablen vor dem Start.
+Diese Datei enthält die Hauptkonfiguration:
 
-- DISPLAY=:0
-- BASEDIR="(standardmäßig) Verzeichnis des geklonten Repositories (siehe config.sh)
-- LOGDIR="$BASEDIR/logs"
-- WORKSPACES="$BASEDIR/workspaces"
-- URLS_INI="$BASEDIR/urls.ini"
-- DEFAULT_URL="https://example.com"
-- CHECK_INTERVAL=10                # Sek. zwischen Watchdog-Zyklen
-- PAGE_REFRESH_INTERVAL=600       # Sek. zwischen möglichen Page-Refreshes
-- REFRESH_INACTIVITY_THRESHOLD=300 # Sek. Inaktivität bis Refresh erlaubt
-- MAX_LOGS=7
-- MAX_LOG_SIZE=$((10*1024*1024))  # Bytes
-- LOG_MAX_BACKUPS=5
-- LOG_FORMAT="text"              # "text" oder "json"
-- LOG_TO_JOURNAL=true             # true/false
-- LOG_DEBUG=0                      # 0/1
-- ENABLE_RESTART=true
-- RESTART_TIME="23:00"
-- ENABLE_POWEROFF=false
-- POWEROFF_TIME="04:00"
-- CHROMIUM_FLAGS=( ... )           # Array mit Default-Chromium-Flags (siehe `config.sh`)
+- `ENABLE_POWEROFF`/`POWEROFF_TIME`: Aktiviert und plant das tägliche Herunterfahren.
+- `ENABLE_RESTART`/`RESTART_TIME`: Aktiviert und plant den täglichen Neustart.
+- `CHECK_INTERVAL`: Intervall (in Sekunden), in dem der Watchdog die Chromium-Prozesse prüft.
+- `LOG_FORMAT`: Legt das Log-Format fest (`text` oder `json`).
+- `LOG_TO_JOURNAL`: Sendet Logs zusätzlich an `journald`.
+- `CHROMIUM_FLAGS`: Startparameter für Chromium im Kiosk-Modus.
 
-Bitte verwende `config.sh` als Referenz; die Datei enthält die komplette Standard-Flagliste und Kommentare.
+### `urls.ini`
 
-## Logging — wie das Skript loggt
-
-- Per-run logs: `config.sh` erzeugt pro Startzeitpunkt Timestamped-Logs (`<repo>-start-YYYY-MM-DD_HH-MM-SS.log` und `<repo>-error-...`).
-- Laufender täglicher Log: `startkiosk.sh` schreibt standardmäßig in `logs/<repo>-YYYY-MM-DD.log` und taggt Fehler/STDERR. Diese Datei wird bei Bedarf per size-rotation (siehe `MAX_LOG_SIZE`) rotiert.
-- Tägliche Kompression: Logs älter als 1 Tag werden gzipped; es werden maximal `MAX_LOGS` Archive aufbewahrt.
-- JSON-Modus: Setze `LOG_FORMAT=json` für maschinenlesbare Einträge.
-- Optional: `LOG_TO_JOURNAL=true` leitet Logs zusätzlich an systemd/journald (`logger`) weiter.
-
-## Wichtige Skriptfunktionen (Kurzreferenz)
-
-Die wichtigsten Funktionen im `startkiosk.sh` sind:
-
-- cleanup()
-  - Beendet Chromium-Prozesse (pkill) und wird beim Empfang von SIGINT/SIGTERM/SIGHUP/EXIT aufgerufen.
-
-- check_prereqs()
-  - Prüft Verfügbarkeit der benötigten Tools (`xdotool`, `xrandr`, `gsettings`, `chromium`, `curl`, `xprintidle`) und validiert Zeitformate für `RESTART_TIME`/`POWEROFF_TIME`.
-
-- validate_urls(...)
-  - Prüft jede konfigurierte URL mit `curl --head`; bei `STRICT_URL_VALIDATION=true` bricht das Skript bei Fehlern ab.
-
-- rotate_by_size(file)
-  - Rotiert `file` in nummerierte Backups wenn es größer als `MAX_LOG_SIZE` wird (begrenzt durch `LOG_MAX_BACKUPS`).
-
-- can_execute_reboot_or_poweroff()
-  - Prüft, ob Neustart/Poweroff ohne interaktives Passwort möglich ist (testet `systemctl --user` und `sudo -n`).
-
-- set_and_verify_gsetting(schema,key,value)
-  - Schreibt GNOME gsettings und verifiziert durch Auslesen; wird für Screensaver/Power-Einstellungen verwendet.
-
-- start_chromium(monitor)
-  - Startet Chromium mit `--user-data-dir` und `--app=<url>`, wartet auf das Fenster (xdotool), positioniert es, passt Größe an und sendet `F11` für Vollbild. Weitere startparameter werden in der `config.sh` konfiguriert
-  - Im Testmodus (`./startkiosk.sh --test`) wird Chromium-Start übersprungen.
-
-- restart_system()/poweroff_system()
-  - Führen `sudo systemctl reboot` bzw. `sudo systemctl poweroff` aus. Werden durch die Watchdog-Zeitlogik zu `RESTART_TIME` / `POWEROFF_TIME` ausgelöst (sofern aktiviert).
-
-- Watchdog loop
-  - Überwacht PIDs, führt Refreshes (F5) bei Inaktivität aus, prüft geplante Restart/Poweroff-Zeiten und startet abgestürzte Instanzen neu (löscht und rekreiert Workspace vorher).
-
-Hinweis: Beim Neustart einer abgestürzten Instanz wird das Workspace-Verzeichnis (`WORKSPACES/<monitor>`) gelöscht (`rm -rf`) und neu erstellt; vorhandene Profilkopien aus `$CHROMIUM_CONFIG` werden erneut hineinkopiert (falls gesetzt). Das bedeutet: Browserdaten werden dabei zurückgesetzt — plane dies bei persistenten Daten ein.
-
-## `urls.ini` — Syntax & Optionen
-
-Beispiel:
+In dieser Datei werden die URLs für die einzelnen Monitore festgelegt. Das Format ist einfach:
 
 ```ini
-default=https://www.google.com
-displayport-0=https://www.bing.com
-displayport-1=https://www.duckduckgo.com,norefresh
-# index-basierte Alternative:
-# index0=https://example.org
+[urls]
+DP-1=https://www.example.com
+HDMI-1=https://www.another-site.org
 ```
 
-- Keys:
-  - `default` – Fallback-URL, falls keine Monitor-Zuweisung vorhanden ist
-  - `<monitor-name>=<url>[,norefresh]` – Monitorname wie von `xrandr` (wird im Skript kleingeschrieben)
-  - `indexN` – alternative Zuweisung nach erkannter Reihenfolge (0-basiert)
-- Option `norefresh`: Wenn angehängt, wird der automatische periodische F5-Refresh für diesen Monitor deaktiviert.
+Die Bezeichner (`DP-1`, `HDMI-1`) müssen den Namen der Monitore entsprechen, wie sie von `xrandr` ausgegeben werden.
 
-Wichtig: Monitor-Namen werden aus `xrandr --query` entnommen, in Kleinbuchstaben konvertiert und Whitespace entfernt, die Einträge in `urls.ini` sollten entsprechend angepasst werden.
+## Protokollierung und Fehlerbehebung
 
-## Start und Betrieb
+Die Log-Dateien werden standardmäßig im Verzeichnis `logs` im Projektordner gespeichert. Fehler werden sowohl in die Konsole als auch in eine separate Fehler-Logdatei geschrieben, um die Fehlersuche zu erleichtern.
 
-- Normaler Start:
-```
-./startkiosk.sh
-```
-- Testmodus (kein Chromium-Start, prüft Konfiguration und Logging):
-```
-./startkiosk.sh --test
-```
-
-### Autostart als systemd user service (empfohlen als user unit)
-
-Beispiel `~/.config/systemd/user/<repo>.service` (passe WorkingDirectory/ExecStart an):
-
-```ini
-[Unit]
-Description=Chromium Kiosk
-After=graphical.target
-
-[Service]
-Type=simple
-Environment=DISPLAY=:0
-Environment=XAUTHORITY=%h/.Xauthority
-WorkingDirectory=%h/<repo-dir>
-TimeoutStartSec=10
-ExecStart=/bin/bash -lc "sleep 10 && %h/<repo-dir>/startkiosk.sh"
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=default.target
-```
-
-Aktivieren:
-
-```bash
-systemctl --user daemon-reload
-systemctl --user enable --now <repo>.service
-```
-
-Hinweis: `graphical.target` oder der genaue Target-Name kann distributionsabhängig variieren.
-
-### Alternativ: Autostart als .desktop-Datei (GNOME)
-
-```ini
-[Desktop Entry]
-# ~/.config/autostart/<repo>.desktop
-[Desktop Entry]
-Type=Application
-Exec=bash -c "sleep 10 && %h/<repo-dir>/startkiosk.sh"
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-Name=Start Kiosk
-Comment=Startet das Kiosk-System mit 10 Sekunden Verzögerung
-```
-
-## Troubleshooting (häufige Probleme)
-
-- Chromium startet nicht: Prüfe `CHROMIUM_BIN` (in `config.sh`) und Installation von `chromium` bzw. `chromium-browser`.
-- Fenster lassen sich nicht bewegen / kein Vollbild: Verwende eine Xorg-Session, stelle sicher, dass `xdotool` installiert ist.
-- GNOME-Übersicht stört: Aktiviere die Extension „No overview at startup" oder konfiguriere GNOME entsprechend.
-- URLs werden abgelehnt: Bei `STRICT_URL_VALIDATION=true` bricht das Skript ab, wenn `validate_urls()` fehlschlägt. Setze `STRICT_URL_VALIDATION=false`, um nur zu warnen.
-- Automatischer Neustart schlägt fehl: Prüfe, ob `can_execute_reboot_or_poweroff()` einen Weg findet, Neustart/Poweroff ohne Passwort auszuführen (systemctl --user oder sudo-NOPASSWD Konfiguration). Am einfachsten ist es dem User die Restartberechtigungen ohne Passwort zu erlauben. Dazu in der sudoers Datei folgendes hinzufügen
-```bash
-deinbenutzername ALL=(ALL) NOPASSWD: /bin/systemctl reboot, /bin/systemctl poweroff
-```
 ## Lizenz
 
-Siehe `LICENCE` im Repository. Dieses Dokument ist die maßgebliche Quelle für Lizenzbedingungen
-
-Kontakt für Fragen: michael+git@langer.tirol
+Dieses Projekt steht unter der in der `LICENCE`-Datei angegebenen Lizenz.
