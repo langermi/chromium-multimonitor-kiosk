@@ -131,6 +131,74 @@ rotate_by_size() {
   if [ -f "${file}.$((backups+1))" ]; then rm -f "${file}.$((backups+1))"; fi
 }
 
+restart_system() {
+  log "Automatischer Neustart um $RESTART_TIME ausgelöst"
+  if [ "${TEST_REBOOT:-0}" -eq 1 ]; then
+    log_warn "TEST_REBOOT=1 gesetzt -> echter Neustart wird NICHT ausgeführt"
+    printf '%s [ACTION] (test) restart requested\n' "$(date '+%F %T')" >>"$LOGFILE"
+    return 0
+  fi
+
+  local -a cmd_attempts=(
+    "systemctl reboot"
+    "sudo systemctl reboot"
+    "dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager.Reboot boolean:true"
+    "loginctl reboot"
+    "sudo /sbin/reboot"
+    "/sbin/reboot"
+  )
+  for attempt in "${cmd_attempts[@]}"; do
+    log_debug "restart_system: Versuch: $attempt"
+    printf '%s [ACTION] Aufruf: %s\n' "$(date '+%F %T')" "$attempt" >>"$LOGFILE"
+    # shellcheck disable=SC2086
+    eval $attempt >>"$LOGFILE" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      log "restart_system: Befehl erfolgreich: $attempt (rc=0)"
+      return 0
+    else
+      log_debug "restart_system: Befehl $attempt lieferte rc=$rc"
+    fi
+    sleep 1
+  done
+  log_error "restart_system: Konnte System nicht neu starten. Keine Methode erfolgreich."
+  return 1
+}
+
+poweroff_system() {
+  log "Automatischer Poweroff um $POWEROFF_TIME ausgelöst"
+  if [ "${TEST_POWEROFF:-0}" -eq 1 ]; then
+    log_warn "TEST_POWEROFF=1 gesetzt -> echtes Poweroff wird NICHT ausgeführt"
+    printf '%s [ACTION] (test) poweroff requested\n' "$(date '+%F %T')" >>"$LOGFILE"
+    return 0
+  fi
+
+  local -a cmd_attempts=(
+    "systemctl poweroff"
+    "sudo systemctl poweroff"
+    "dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager.PowerOff boolean:true"
+    "loginctl poweroff"
+    "sudo /sbin/poweroff"
+    "/sbin/poweroff"
+  )
+  for attempt in "${cmd_attempts[@]}"; do
+    log_debug "poweroff_system: Versuch: $attempt"
+    printf '%s [ACTION] Aufruf: %s\n' "$(date '+%F %T')" "$attempt" >>"$LOGFILE"
+    # shellcheck disable=SC2086
+    eval $attempt >>"$LOGFILE" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      log "poweroff_system: Befehl erfolgreich: $attempt (rc=0)"
+      return 0
+    else
+      log_debug "poweroff_system: Befehl $attempt lieferte rc=$rc"
+    fi
+    sleep 1
+  done
+  log_error "poweroff_system: Konnte System nicht ausschalten. Keine Methode erfolgreich."
+  return 1
+}
+
 can_execute_reboot_or_poweroff() {
   if [ "$(id -u)" -eq 0 ]; then
     log_debug "can_execute_reboot_or_poweroff: running as root -> allowed"
@@ -200,6 +268,7 @@ print_config_summary() {
   log "  CHECK_INTERVAL=${CHECK_INTERVAL:-(unset)}s"
   log "  PAGE_REFRESH_INTERVAL=${PAGE_REFRESH_INTERVAL:-(unset)}s"
   log "  REFRESH_INACTIVITY_THRESHOLD=${REFRESH_INACTIVITY_THRESHOLD:-(unset)}s"
+  log "  DISABLE_PAGE_REFRESH=${DISABLE_PAGE_REFRESH:-false}"
   log "  APPLY_POWER_SETTINGS=${APPLY_POWER_SETTINGS:-true}"
   log "  ENABLE_RESTART=${ENABLE_RESTART:-true} RESTART_TIME=${RESTART_TIME:-(unset)}"
   log "  ENABLE_POWEROFF=${ENABLE_POWEROFF:-false} POWEROFF_TIME=${POWEROFF_TIME:-(unset)}"
@@ -289,9 +358,34 @@ wait_for_network() {
   return 1
 }
 
-if [ "${PAGE_REFRESH_INTERVAL:-0}" -lt "${REFRESH_INACTIVITY_THRESHOLD:-0}" ]; then
-  log_error "Konfigurationsfehler: PAGE_REFRESH_INTERVAL (${PAGE_REFRESH_INTERVAL}s) ist kleiner als REFRESH_INACTIVITY_THRESHOLD (${REFRESH_INACTIVITY_THRESHOLD}s). Bitte korrigieren."
-  exit 1
+PAGE_REFRESH_ENABLED=true
+PAGE_REFRESH_DISABLE_REASON=""
+
+if [ "${DISABLE_PAGE_REFRESH:-false}" = true ]; then
+  PAGE_REFRESH_ENABLED=false
+  PAGE_REFRESH_DISABLE_REASON="DISABLE_PAGE_REFRESH=true"
+elif [ -z "${PAGE_REFRESH_INTERVAL:+x}" ] || [ -z "${REFRESH_INACTIVITY_THRESHOLD:+x}" ]; then
+  PAGE_REFRESH_ENABLED=false
+  PAGE_REFRESH_DISABLE_REASON="PAGE_REFRESH_INTERVAL oder REFRESH_INACTIVITY_THRESHOLD nicht gesetzt"
+else
+  if ! [[ "${PAGE_REFRESH_INTERVAL}" =~ ^[0-9]+$ ]]; then
+    log_error "Ungültiger Wert für PAGE_REFRESH_INTERVAL: '${PAGE_REFRESH_INTERVAL}'. Bitte ganzzahlige Sekunden angeben oder Variable leer lassen."
+    exit 1
+  fi
+  if ! [[ "${REFRESH_INACTIVITY_THRESHOLD}" =~ ^[0-9]+$ ]]; then
+    log_error "Ungültiger Wert für REFRESH_INACTIVITY_THRESHOLD: '${REFRESH_INACTIVITY_THRESHOLD}'. Bitte ganzzahlige Sekunden angeben oder Variable leer lassen."
+    exit 1
+  fi
+  if [ "${PAGE_REFRESH_INTERVAL}" -lt "${REFRESH_INACTIVITY_THRESHOLD}" ]; then
+    log_error "Konfigurationsfehler: PAGE_REFRESH_INTERVAL (${PAGE_REFRESH_INTERVAL}s) ist kleiner als REFRESH_INACTIVITY_THRESHOLD (${REFRESH_INACTIVITY_THRESHOLD}s). Bitte korrigieren."
+    exit 1
+  fi
+fi
+
+if [ "$PAGE_REFRESH_ENABLED" = false ]; then
+  log "Automatischer Seiten-Refresh deaktiviert (${PAGE_REFRESH_DISABLE_REASON:-ohne Angabe})."
+else
+  log "Seiten-Refresh aktiv (Intervall ${PAGE_REFRESH_INTERVAL}s, Inaktivitätsschwelle ${REFRESH_INACTIVITY_THRESHOLD}s)."
 fi
 
 # LXDE-spezifische Power-/Screensaver-Deaktivierung
@@ -326,7 +420,11 @@ fi
 # URLs einlesen (kopiert unverändert)
 declare -A URL_BY_NAME URL_BY_INDEX REFRESH_BY_NAME REFRESH_BY_INDEX
 declare -a ALL_URLS
-DEFAULT_REFRESH_ENABLED=true
+if [ "$PAGE_REFRESH_ENABLED" = true ]; then
+  DEFAULT_REFRESH_ENABLED=true
+else
+  DEFAULT_REFRESH_ENABLED=false
+fi
 
 URL_VALIDATION_RETRIES=${URL_VALIDATION_RETRIES:-3}
 URL_VALIDATION_RETRY_INTERVAL=${URL_VALIDATION_RETRY_INTERVAL:-5}
@@ -344,15 +442,19 @@ if [ -f "$URLS_INI" ]; then
     if [[ "$option_part" == "norefresh" ]]; then
       refresh_enabled=false
     fi
+    effective_refresh=$refresh_enabled
+    if [ "$PAGE_REFRESH_ENABLED" != true ]; then
+      effective_refresh=false
+    fi
     if [ "$key" = "default" ]; then
       DEFAULT_URL="$url_part"
-      DEFAULT_REFRESH_ENABLED=$refresh_enabled
+      DEFAULT_REFRESH_ENABLED=$effective_refresh
     elif [[ "$key" =~ ^index([0-9]+)$ ]]; then
       URL_BY_INDEX["${BASH_REMATCH[1]}"]=$url_part
-      REFRESH_BY_INDEX["${BASH_REMATCH[1]}"]=$refresh_enabled
+      REFRESH_BY_INDEX["${BASH_REMATCH[1]}"]=$effective_refresh
     else
       URL_BY_NAME["$key"]=$url_part
-      REFRESH_BY_NAME["$key"]=$refresh_enabled
+      REFRESH_BY_NAME["$key"]=$effective_refresh
     fi
   done <"$URLS_INI"
   if [ -n "${DEFAULT_URL:-}" ]; then
@@ -429,7 +531,11 @@ for idx in "${!MON_LIST[@]}"; do
   refresh_setting="${REFRESH_BY_NAME[$key]:-${REFRESH_BY_INDEX[$idx]:-$DEFAULT_REFRESH_ENABLED}}"
   ws="$WORKSPACES/$key"
   MON_URL["$m"]=$url
-  MON_REFRESH_ENABLED["$m"]=$refresh_setting
+  if [ "$PAGE_REFRESH_ENABLED" = true ]; then
+    MON_REFRESH_ENABLED["$m"]=$refresh_setting
+  else
+    MON_REFRESH_ENABLED["$m"]=false
+  fi
   WS_DIR["$m"]=$ws
   mkdir -p "$ws"
   if [ -d "$CHROMIUM_CONFIG" ]; then
@@ -477,16 +583,20 @@ for m in "${MON_LIST[@]}"; do
   sleep 1
 done
 
-last_refresh_time=$(date +%s)
+if [ "$PAGE_REFRESH_ENABLED" = true ]; then
+  last_refresh_time=$(date +%s)
+fi
 prev_check_time=$(date +%s)
 while true; do
   sleep "$CHECK_INTERVAL"
   now=$(date +%s)
   prev_mod=$((10#$(date -d "@${prev_check_time}" +%H)*3600 + 10#$(date -d "@${prev_check_time}" +%M)*60 + 10#$(date -d "@${prev_check_time}" +%S)))
   now_mod=$((10#$(date +%H)*3600 + 10#$(date +%M)*60 + 10#$(date +%S)))
-  if (( now - last_refresh_time >= PAGE_REFRESH_INTERVAL )); then
+  if [ "$PAGE_REFRESH_ENABLED" = true ]; then
+    if (( now - last_refresh_time >= PAGE_REFRESH_INTERVAL )); then
+      idle_time_ms=0
       if command -v xprintidle &>/dev/null; then
-        idle_time_ms=$(xprintidle)
+        idle_time_ms=$(xprintidle 2>/dev/null || echo 0)
       fi
       idle_seconds=$((idle_time_ms / 1000))
       if [ "$idle_seconds" -ge "${REFRESH_INACTIVITY_THRESHOLD:-300}" ]; then
@@ -523,6 +633,7 @@ while true; do
       else
         log "Refresh übersprungen. System ist aktiv (Inaktivität: $idle_seconds s)."
       fi
+    fi
   fi
   if [ "${ENABLE_RESTART:-true}" = "true" ]; then
     target_restart_mod=$(awk -F: '{print ($1*3600)+($2*60)}' <<<"$RESTART_TIME")
