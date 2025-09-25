@@ -243,6 +243,52 @@ log "Logging in $LOGFILE"
 print_config_summary
 check_prereqs
 
+wait_for_network() {
+  local deadline=$(( $(date +%s) + ${NETWORK_READY_TIMEOUT:-120} ))
+  local check_interval=${NETWORK_READY_CHECK_INTERVAL:-5}
+  local urls=("$@")
+  local target="${NETWORK_READY_CHECK_URL:-}"
+  if [ -z "$target" ]; then
+    if [ ${#urls[@]} -gt 0 ]; then
+      target="${urls[0]}"
+    elif [ -n "${DEFAULT_URL:-}" ]; then
+      target="$DEFAULT_URL"
+    else
+      target="https://example.com"
+    fi
+  fi
+
+  if command -v nm-online &>/dev/null; then
+    log "Prüfe Netzwerkverbindung via nm-online (Timeout ${NETWORK_READY_TIMEOUT:-120}s)."
+  else
+    log "Prüfe Netzwerkverbindung über HTTP-HEAD auf $target (Timeout ${NETWORK_READY_TIMEOUT:-120}s)."
+  fi
+
+  local nm_supported=0
+  if command -v nm-online &>/dev/null; then
+    nm_supported=1
+  fi
+
+  while [ $(date +%s) -le "$deadline" ]; do
+    if [ "$nm_supported" -eq 1 ]; then
+      if nm-online -q --timeout=1; then
+        log "NetworkManager meldet Online-Status."
+        return 0
+      fi
+    fi
+
+    if curl --output /dev/null --silent --head --fail "$target"; then
+      log "Netzwerkverbindung zu $target hergestellt."
+      return 0
+    fi
+
+    sleep "$check_interval"
+  done
+
+  log_error "Netzwerk wurde innerhalb von ${NETWORK_READY_TIMEOUT:-120}s nicht erreichbar (letztes Prüfziel: $target)."
+  return 1
+}
+
 if [ "${PAGE_REFRESH_INTERVAL:-0}" -lt "${REFRESH_INACTIVITY_THRESHOLD:-0}" ]; then
   log_error "Konfigurationsfehler: PAGE_REFRESH_INTERVAL (${PAGE_REFRESH_INTERVAL}s) ist kleiner als REFRESH_INACTIVITY_THRESHOLD (${REFRESH_INACTIVITY_THRESHOLD}s). Bitte korrigieren."
   exit 1
@@ -282,6 +328,9 @@ declare -A URL_BY_NAME URL_BY_INDEX REFRESH_BY_NAME REFRESH_BY_INDEX
 declare -a ALL_URLS
 DEFAULT_REFRESH_ENABLED=true
 
+URL_VALIDATION_RETRIES=${URL_VALIDATION_RETRIES:-3}
+URL_VALIDATION_RETRY_INTERVAL=${URL_VALIDATION_RETRY_INTERVAL:-5}
+
 if [ -f "$URLS_INI" ]; then
   log "Lade URLs aus $URLS_INI"
   while IFS='=' read -r key val; do
@@ -318,9 +367,19 @@ if [ -f "$URLS_INI" ]; then
       ALL_URLS+=("$DEFAULT_URL")
     fi
   fi
-  # Allow configurable retries for URL validation to survive transient network issues
-  URL_VALIDATION_RETRIES=${URL_VALIDATION_RETRIES:-3}
-  URL_VALIDATION_RETRY_INTERVAL=${URL_VALIDATION_RETRY_INTERVAL:-5}
+else
+  log "WARN: urls.ini nicht gefunden. Nutze $DEFAULT_URL"
+  if [ -n "${DEFAULT_URL:-}" ]; then
+    ALL_URLS+=("$DEFAULT_URL")
+  fi
+fi
+
+if ! wait_for_network "${ALL_URLS[@]}"; then
+  log_error "Abbruch: Netzwerkverbindung konnte nicht aufgebaut werden."
+  exit 1
+fi
+
+if [ ${#ALL_URLS[@]} -gt 0 ]; then
   for attempt in $(seq 1 "$URL_VALIDATION_RETRIES"); do
     if validate_urls "${ALL_URLS[@]}"; then
       break
@@ -330,19 +389,6 @@ if [ -f "$URLS_INI" ]; then
       sleep "$URL_VALIDATION_RETRY_INTERVAL"
     else
       log_error "validate_urls failed after $URL_VALIDATION_RETRIES attempts"
-    fi
-  done
-else
-  log "WARN: urls.ini nicht gefunden. Nutze $DEFAULT_URL"
-  for attempt in $(seq 1 "$URL_VALIDATION_RETRIES"); do
-    if validate_urls "$DEFAULT_URL"; then
-      break
-    fi
-    if [ "$attempt" -lt "$URL_VALIDATION_RETRIES" ]; then
-      log_warn "validate_urls(default) failed (attempt $attempt/$URL_VALIDATION_RETRIES) - retrying in ${URL_VALIDATION_RETRY_INTERVAL}s"
-      sleep "$URL_VALIDATION_RETRY_INTERVAL"
-    else
-      log_error "validate_urls(default) failed after $URL_VALIDATION_RETRIES attempts"
     fi
   done
 fi

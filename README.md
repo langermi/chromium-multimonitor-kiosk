@@ -71,6 +71,7 @@ Diese Datei enthält die Hauptkonfiguration:
 - `ENABLE_POWEROFF`/`POWEROFF_TIME`: Aktiviert und plant das tägliche Herunterfahren.
 - `ENABLE_RESTART`/`RESTART_TIME`: Aktiviert und plant den täglichen Neustart.
 - `CHECK_INTERVAL`: Intervall (in Sekunden), in dem der Watchdog die Chromium-Prozesse prüft.
+- `NETWORK_READY_TIMEOUT` / `NETWORK_READY_CHECK_INTERVAL` / `NETWORK_READY_CHECK_URL`: Steuerung, wie lange und in welchen Abständen der Start auf eine funktionierende Netzwerkverbindung wartet.
 - `LOG_FORMAT`: Legt das Log-Format fest (`text` oder `json`).
 - `LOG_TO_JOURNAL`: Sendet Logs zusätzlich an `journald`.
 - `CHROMIUM_FLAGS`: Startparameter für Chromium im Kiosk-Modus.

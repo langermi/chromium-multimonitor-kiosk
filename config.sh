@@ -16,6 +16,12 @@ CHROMIUM_CONFIG="$HOME/.config/chromium"
 REFRESH_INACTIVITY_THRESHOLD=300
 PAGE_REFRESH_INTERVAL=600
 
+# Netzwerk-Warteverhalten
+NETWORK_READY_TIMEOUT=120          # Maximale Wartezeit (Sekunden) bis eine Verbindung verfügbar sein muss
+NETWORK_READY_CHECK_INTERVAL=5     # Abstand zwischen Verbindungsprüfungen (Sekunden)
+# Optional: feste URL, die für den Verfügbarkeitscheck verwendet wird. Leer lassen = DEFAULT_URL bzw. erste Monitor-URL.
+NETWORK_READY_CHECK_URL=""
+
 # Powersettings
 ENABLE_POWEROFF=false  # true = Poweroff aktiv, false = deaktiviert
 POWEROFF_TIME="04:00"
