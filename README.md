@@ -11,11 +11,15 @@ Chromium Multi-Monitor Kiosk stellt ein ausfallsicheres Browser-Kiosk-System fü
     - [config.sh](#configsh)
     - [urls.ini](#urlsini)
     - [weitere Ressourcen](#weitere-ressourcen)
-5. [Betrieb & Automatisierung](#betrieb--automatisierung)
-6. [Protokollierung & Wartung](#protokollierung--wartung)
-7. [Automatisierte Installation (Preseed)](#automatisierte-installation-preseed)
-8. [Troubleshooting](#troubleshooting)
-9. [Lizenz](#lizenz)
+5. [Web Interface](#web-interface)
+    - [Installation & Start](#installation--start)
+    - [Funktionen](#web-interface-funktionen)
+    - [API-Endpunkte](#api-endpunkte)
+6. [Betrieb & Automatisierung](#betrieb--automatisierung)
+7. [Protokollierung & Wartung](#protokollierung--wartung)
+8. [Automatisierte Installation (Preseed)](#automatisierte-installation-preseed)
+9. [Troubleshooting](#troubleshooting)
+10. [Lizenz](#lizenz)
 
 ## Funktionen
 
@@ -26,6 +30,7 @@ Chromium Multi-Monitor Kiosk stellt ein ausfallsicheres Browser-Kiosk-System fü
 - ⏰ **Zeitgesteuerte Aktionen:** Geplanter Neustart/Shutdown inklusive mehrerer Fallback-Kommandos.
 - 📡 **Netzwerk-Bereitschaftsprüfung:** Start wartet optional auf eine funktionierende Internetverbindung.
 - 📜 **Logging & Rotation:** Dateibasierte Logs, optionale Journald-Ausgabe, Log-Rotation.
+- 🌐 **Web Interface:** Browser-basierte Konfigurationsoberfläche für einfache Verwaltung von `config.sh` und `urls.ini`.
 - 🛠️ **Automatisierter Rollout:** Debian-Preseed-Dateien erzeugen ein fertiges Kiosk-System mit Autologin, Service-Einbindung und vorkonfigurierten Skripten.
 
 ## Unterstützte Plattformen & Voraussetzungen
@@ -109,6 +114,86 @@ index0=https://werbung.example.org
 - `startkiosk-gnome.sh` / `startkiosk-lxde.sh` – Startskripte mit Watchdog
 - `urls.ini` – Monitor-zu-URL-Mapping
 - `debianpreseed/` – automatisierte Installationsprofile (GNOME & LXDE)
+
+## Web Interface
+
+Das Chromium Multi-Monitor Kiosk System bietet eine benutzerfreundliche Web-Oberfläche zur Konfiguration von `config.sh` und `urls.ini`. Die Web-Schnittstelle ermöglicht es, alle wichtigen Einstellungen über einen Webbrowser zu verwalten, ohne direkt in den Konfigurationsdateien zu editieren.
+
+### Installation & Start
+
+#### Voraussetzungen
+
+```bash
+# Python 3 und Flask installieren
+pip3 install flask
+```
+
+#### Schnellstart
+
+```bash
+# Web Interface starten
+./start-webui.sh
+
+# Oder manuell
+python3 webui.py --host 0.0.0.0 --port 8080
+
+# Mit Debug-Modus
+python3 webui.py --host 0.0.0.0 --port 8080 --debug
+```
+
+Die Web-Oberfläche ist dann unter `http://localhost:8080` erreichbar.
+
+#### Als systemd-Service (optional)
+
+```bash
+# Service-Datei installieren (Pfade anpassen)
+sudo cp kiosk-webui.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable kiosk-webui
+sudo systemctl start kiosk-webui
+```
+
+### Web Interface Funktionen
+
+#### Dashboard
+- **System-Übersicht**: Anzeige aktueller Konfigurationswerte
+- **Status-Indikatoren**: Visuelle Darstellung wichtiger Einstellungen
+- **Quick Actions**: Direkte Links zu Konfigurations- und URL-Verwaltung
+
+#### Konfiguration (`config.sh`)
+- **Allgemeine Einstellungen**: Default-URL, URL-Validierung
+- **Timing & Monitoring**: Watchdog-Intervalle, Refresh-Einstellungen
+- **Netzwerk**: Timeout-Werte, Verbindungsprüfung
+- **Energieverwaltung**: Automatische Neustarts/Shutdowns
+- **Logging**: Format, Debug-Level, Rotation
+
+#### URL-Mappings (`urls.ini`)
+- **Monitor-Management**: URLs für spezifische Monitore zuweisen
+- **Index-basierte Zuordnung**: URLs nach Monitor-Reihenfolge
+- **Quick Templates**: Vorkonfigurierte Setups für 1-3 Monitore
+- **Dynamisches Hinzufügen**: Neue URL-Mappings zur Laufzeit
+
+### API-Endpunkte
+
+Das Web Interface bietet auch REST-API-Endpunkte für Automatisierung:
+
+```bash
+# Konfiguration abrufen
+curl http://localhost:8080/api/config
+
+# Konfiguration setzen
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"DEFAULT_URL":"https://new-url.com"}' \
+  http://localhost:8080/api/config
+
+# URL-Mappings abrufen
+curl http://localhost:8080/api/urls
+
+# URL-Mappings setzen
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"default":"https://dashboard.com","DP-1":"https://monitor1.com"}' \
+  http://localhost:8080/api/urls
+```
 
 ## Betrieb & Automatisierung
 
