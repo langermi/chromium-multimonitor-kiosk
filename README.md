@@ -94,7 +94,7 @@ Das INI-Format erlaubt URL-Zuweisung nach Namen (Monitor-ID) oder Index:
 ```ini
 [urls]
 default=https://intranet.example.org
-DP-1=https://dashboards.example.org,refresh
+DP-1=https://dashboards.example.org
 HDMI-1=https://fallback.example.org,norefresh
 index0=https://werbung.example.org
 ```
@@ -126,7 +126,7 @@ Das Skript prüft zuerst Abhängigkeiten und Berechtigungen, wartet optional auf
 
 ### Autostart via systemd (empfohlen)
 
-1. **User-Service anlegen**
+1. **User-Service anlegen (für LXDE. Bitte Pfade anpassen)**
 
     ```bash
     mkdir -p ~/.config/systemd/user
@@ -138,7 +138,7 @@ Das Skript prüft zuerst Abhängigkeiten und Berechtigungen, wartet optional auf
 
     [Service]
     Environment=DISPLAY=:0
-    ExecStart=/bin/bash -c "/home/kiosk/chromium-multimonitor-kiosk/startkiosk-lxde.sh"
+    ExecStart=/bin/bash -c "/DIRECTORY/chromium-multimonitor-kiosk/startkiosk-lxde.sh"
     Restart=on-failure
     RestartSec=5
     StandardOutput=journal
