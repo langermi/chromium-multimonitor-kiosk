@@ -66,8 +66,8 @@ sudo apt install chromium xdotool xrandr xprintidle xset curl gsettings-desktop-
     ```
 
 4. **Starten**
-    - GNOME: `./startkiosk-gnome.sh`
-    - LXDE: `./startkiosk-lxde.sh`
+    - GNOME: `/bin/bash -c ./startkiosk-gnome.sh`
+    - LXDE: `/bin/bash -c ./startkiosk-lxde.sh`
 
 ## Konfiguration
 
@@ -109,7 +109,6 @@ index0=https://werbung.example.org
 - `startkiosk-gnome.sh` / `startkiosk-lxde.sh` – Startskripte mit Watchdog
 - `urls.ini` – Monitor-zu-URL-Mapping
 - `debianpreseed/` – automatisierte Installationsprofile (GNOME & LXDE)
-- `helperscripts/` – ISO-Abbilder und Hinweise für vorkonfigurierte Installationen
 
 ## Betrieb & Automatisierung
 
@@ -117,10 +116,10 @@ index0=https://werbung.example.org
 
 ```bash
 # GNOME
-./startkiosk-gnome.sh
+/bin/bash -c ./startkiosk-gnome.sh
 
 # LXDE
-./startkiosk-lxde.sh
+/bin/bash -c ./startkiosk-lxde.sh
 ```
 
 Das Skript prüft zuerst Abhängigkeiten und Berechtigungen, wartet optional auf Netzwerk-Konnektivität und öffnet dann pro Monitor eine Vollbild-Chromium-App.
@@ -134,19 +133,19 @@ Das Skript prüft zuerst Abhängigkeiten und Berechtigungen, wartet optional auf
     cat > ~/.config/systemd/user/kiosk.service <<'EOF'
     [Unit]
     Description=Chromium Multi-Monitor Kiosk
-    After=graphical-session.target network-online.target
+    After=network-online.target
     Wants=graphical-session.target
 
     [Service]
-    Type=exec
     Environment=DISPLAY=:0
-    WorkingDirectory=%h/chromium-multimonitor-kiosk
-    ExecStart=%h/chromium-multimonitor-kiosk/startkiosk-lxde.sh
+    ExecStart=/bin/bash -c "/home/kiosk/chromium-multimonitor-kiosk/startkiosk-lxde.sh"
     Restart=on-failure
     RestartSec=5
+    StandardOutput=journal
+    StandardError=journal
 
     [Install]
-    WantedBy=graphical-session.target
+    WantedBy=default.target
     EOF
     ```
 
