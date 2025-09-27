@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Chromium Multi-Monitor Kiosk{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>System Overview</h2>
+    <p>Welcome to the Chromium Multi-Monitor Kiosk Web Interface. Use this dashboard to monitor and configure your kiosk system.</p>
+    
+    <div class="grid">
+        <div>
+            <h3>Configuration Status</h3>
+            <ul>
+                <li><span class="status-indicator status-online"></span>Default URL: {{ config.get('DEFAULT_URL', 'Not configured') }}</li>
+                <li><span class="status-indicator {% if config.get('STRICT_URL_VALIDATION') == 'true' %}status-online{% else %}status-offline{% endif %}"></span>URL Validation: {{ config.get('STRICT_URL_VALIDATION', 'false') }}</li>
+                <li><span class="status-indicator {% if config.get('ENABLE_RESTART') == 'true' %}status-online{% else %}status-offline{% endif %}"></span>Auto Restart: {{ config.get('ENABLE_RESTART', 'false') }} {% if config.get('ENABLE_RESTART') == 'true' %}at {{ config.get('RESTART_TIME', '23:00') }}{% endif %}</li>
+                <li><span class="status-indicator {% if config.get('DISABLE_PAGE_REFRESH') == 'false' %}status-online{% else %}status-offline{% endif %}"></span>Page Refresh: {% if config.get('DISABLE_PAGE_REFRESH') == 'false' %}Enabled{% else %}Disabled{% endif %}</li>
+            </ul>
+        </div>
+        
+        <div>
+            <h3>URL Mappings</h3>
+            {% if urls %}
+                <ul>
+                    {% for monitor, url in urls.items() %}
+                        <li><strong>{{ monitor }}:</strong> {{ url }}</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No URL mappings configured.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Quick Actions</h2>
+    <div class="grid">
+        <div>
+            <h3>Configuration</h3>
+            <p>Manage system settings including refresh intervals, restart schedules, and logging options.</p>
+            <a href="{{ url_for('config') }}" class="btn">Edit Configuration</a>
+        </div>
+        
+        <div>
+            <h3>URL Mappings</h3>
+            <p>Configure which URLs are displayed on each monitor or by monitor index.</p>
+            <a href="{{ url_for('urls') }}" class="btn">Manage URLs</a>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>System Information</h2>
+    <div class="grid">
+        <div>
+            <h3>Timing Settings</h3>
+            <ul>
+                <li><strong>Check Interval:</strong> {{ config.get('CHECK_INTERVAL', '10') }} seconds</li>
+                <li><strong>Refresh Inactivity Threshold:</strong> {{ config.get('REFRESH_INACTIVITY_THRESHOLD', '300') }} seconds</li>
+                <li><strong>Page Refresh Interval:</strong> {{ config.get('PAGE_REFRESH_INTERVAL', '600') }} seconds</li>
+                <li><strong>Network Ready Timeout:</strong> {{ config.get('NETWORK_READY_TIMEOUT', '120') }} seconds</li>
+            </ul>
+        </div>
+        
+        <div>
+            <h3>Power Management</h3>
+            <ul>
+                <li><strong>Auto Poweroff:</strong> {{ config.get('ENABLE_POWEROFF', 'false') }} {% if config.get('ENABLE_POWEROFF') == 'true' %}at {{ config.get('POWEROFF_TIME', '04:00') }}{% endif %}</li>
+                <li><strong>Auto Restart:</strong> {{ config.get('ENABLE_RESTART', 'true') }} {% if config.get('ENABLE_RESTART') == 'true' %}at {{ config.get('RESTART_TIME', '23:00') }}{% endif %}</li>
+                <li><strong>Power Settings:</strong> {% if config.get('APPLY_POWER_SETTINGS') == 'true' %}Applied{% else %}Not applied{% endif %}</li>
+            </ul>
+        </div>
+        
+        <div>
+            <h3>Logging</h3>
+            <ul>
+                <li><strong>Log Format:</strong> {{ config.get('LOG_FORMAT', 'text') }}</li>
+                <li><strong>Debug Logging:</strong> {% if config.get('LOG_DEBUG') == '1' %}Enabled{% else %}Disabled{% endif %}</li>
+                <li><strong>Journal Logging:</strong> {{ config.get('LOG_TO_JOURNAL', 'true') }}</li>
+                <li><strong>Max Log Size:</strong> {{ config.get('MAX_LOG_SIZE', '10') }} MB</li>
+                <li><strong>Max Log Backups:</strong> {{ config.get('LOG_MAX_BACKUPS', '5') }}</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

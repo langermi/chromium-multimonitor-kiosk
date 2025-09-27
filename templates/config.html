@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Configuration - Chromium Multi-Monitor Kiosk{% endblock %}
+
+{% block content %}
+<form method="POST">
+    <div class="card">
+        <h2>General Settings</h2>
+        
+        <div class="form-group">
+            <label for="DEFAULT_URL">Default URL</label>
+            <input type="text" id="DEFAULT_URL" name="DEFAULT_URL" value="{{ config.get('DEFAULT_URL', '') }}" 
+                   placeholder="https://example.com">
+            <small>Fallback URL when urls.ini is missing or has no entry for a monitor.</small>
+        </div>
+        
+        <div class="checkbox-group">
+            <input type="hidden" name="STRICT_URL_VALIDATION" value="false">
+            <input type="checkbox" id="STRICT_URL_VALIDATION" name="STRICT_URL_VALIDATION" value="true" 
+                   {% if config.get('STRICT_URL_VALIDATION') == 'true' %}checked{% endif %}>
+            <label for="STRICT_URL_VALIDATION">Strict URL Validation (URLs must be reachable at startup)</label>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Timing & Monitoring</h2>
+        
+        <div class="form-group">
+            <label for="CHECK_INTERVAL">Watchdog Check Interval (seconds)</label>
+            <input type="number" id="CHECK_INTERVAL" name="CHECK_INTERVAL" value="{{ config.get('CHECK_INTERVAL', '10') }}" min="1" max="300">
+            <small>How often the watchdog checks for crashed processes.</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="REFRESH_INACTIVITY_THRESHOLD">Refresh Inactivity Threshold (seconds)</label>
+            <input type="number" id="REFRESH_INACTIVITY_THRESHOLD" name="REFRESH_INACTIVITY_THRESHOLD" 
+                   value="{{ config.get('REFRESH_INACTIVITY_THRESHOLD', '300') }}" min="30" max="3600">
+            <small>Required inactivity time before automatic refresh.</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="PAGE_REFRESH_INTERVAL">Page Refresh Interval (seconds)</label>
+            <input type="number" id="PAGE_REFRESH_INTERVAL" name="PAGE_REFRESH_INTERVAL" 
+                   value="{{ config.get('PAGE_REFRESH_INTERVAL', '600') }}" min="60" max="7200">
+            <small>Interval for automatic page refresh.</small>
+        </div>
+        
+        <div class="checkbox-group">
+            <input type="hidden" name="DISABLE_PAGE_REFRESH" value="false">
+            <input type="checkbox" id="DISABLE_PAGE_REFRESH" name="DISABLE_PAGE_REFRESH" value="true" 
+                   {% if config.get('DISABLE_PAGE_REFRESH') == 'true' %}checked{% endif %}>
+            <label for="DISABLE_PAGE_REFRESH">Disable Automatic Page Refresh</label>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Network Settings</h2>
+        
+        <div class="form-group">
+            <label for="NETWORK_READY_TIMEOUT">Network Ready Timeout (seconds)</label>
+            <input type="number" id="NETWORK_READY_TIMEOUT" name="NETWORK_READY_TIMEOUT" 
+                   value="{{ config.get('NETWORK_READY_TIMEOUT', '120') }}" min="10" max="600">
+            <small>Maximum time to wait for network connection at startup.</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="NETWORK_READY_CHECK_INTERVAL">Network Check Interval (seconds)</label>
+            <input type="number" id="NETWORK_READY_CHECK_INTERVAL" name="NETWORK_READY_CHECK_INTERVAL" 
+                   value="{{ config.get('NETWORK_READY_CHECK_INTERVAL', '5') }}" min="1" max="30">
+            <small>Interval between network connectivity checks.</small>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Power Management</h2>
+        
+        <div class="checkbox-group">
+            <input type="hidden" name="ENABLE_POWEROFF" value="false">
+            <input type="checkbox" id="ENABLE_POWEROFF" name="ENABLE_POWEROFF" value="true" 
+                   {% if config.get('ENABLE_POWEROFF') == 'true' %}checked{% endif %}>
+            <label for="ENABLE_POWEROFF">Enable Daily Automatic Poweroff</label>
+        </div>
+        
+        <div class="form-group">
+            <label for="POWEROFF_TIME">Poweroff Time (24h format)</label>
+            <input type="time" id="POWEROFF_TIME" name="POWEROFF_TIME" value="{{ config.get('POWEROFF_TIME', '04:00') }}">
+            <small>Time for automatic system shutdown.</small>
+        </div>
+        
+        <div class="checkbox-group">
+            <input type="hidden" name="ENABLE_RESTART" value="false">
+            <input type="checkbox" id="ENABLE_RESTART" name="ENABLE_RESTART" value="true" 
+                   {% if config.get('ENABLE_RESTART') == 'true' %}checked{% endif %}>
+            <label for="ENABLE_RESTART">Enable Daily Automatic Restart</label>
+        </div>
+        
+        <div class="form-group">
+            <label for="RESTART_TIME">Restart Time (24h format)</label>
+            <input type="time" id="RESTART_TIME" name="RESTART_TIME" value="{{ config.get('RESTART_TIME', '23:00') }}">
+            <small>Time for automatic system restart.</small>
+        </div>
+        
+        <div class="checkbox-group">
+            <input type="hidden" name="APPLY_POWER_SETTINGS" value="false">
+            <input type="checkbox" id="APPLY_POWER_SETTINGS" name="APPLY_POWER_SETTINGS" value="true" 
+                   {% if config.get('APPLY_POWER_SETTINGS') == 'true' %}checked{% endif %}>
+            <label for="APPLY_POWER_SETTINGS">Apply Power/Screensaver Settings</label>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Logging</h2>
+        
+        <div class="form-group">
+            <label for="LOG_FORMAT">Log Format</label>
+            <select id="LOG_FORMAT" name="LOG_FORMAT">
+                <option value="text" {% if config.get('LOG_FORMAT') == 'text' %}selected{% endif %}>Text</option>
+                <option value="json" {% if config.get('LOG_FORMAT') == 'json' %}selected{% endif %}>JSON</option>
+            </select>
+        </div>
+        
+        <div class="checkbox-group">
+            <input type="hidden" name="LOG_DEBUG" value="0">
+            <input type="checkbox" id="LOG_DEBUG" name="LOG_DEBUG" value="1" 
+                   {% if config.get('LOG_DEBUG') == '1' %}checked{% endif %}>
+            <label for="LOG_DEBUG">Enable Debug Logging</label>
+        </div>
+        
+        <div class="checkbox-group">
+            <input type="hidden" name="LOG_TO_JOURNAL" value="false">
+            <input type="checkbox" id="LOG_TO_JOURNAL" name="LOG_TO_JOURNAL" value="true" 
+                   {% if config.get('LOG_TO_JOURNAL') == 'true' %}checked{% endif %}>
+            <label for="LOG_TO_JOURNAL">Log to systemd Journal</label>
+        </div>
+        
+        <div class="form-group">
+            <label for="MAX_LOG_SIZE">Maximum Log File Size (MB)</label>
+            <input type="number" id="MAX_LOG_SIZE" name="MAX_LOG_SIZE" value="{{ config.get('MAX_LOG_SIZE', '10') }}" min="1" max="100">
+            <small>Maximum size of log files before rotation.</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="LOG_MAX_BACKUPS">Maximum Log Backups</label>
+            <input type="number" id="LOG_MAX_BACKUPS" name="LOG_MAX_BACKUPS" value="{{ config.get('LOG_MAX_BACKUPS', '5') }}" min="1" max="20">
+            <small>Number of rotated log files to keep.</small>
+        </div>
+    </div>
+
+    <div class="card">
+        <button type="submit" class="btn btn-success">Save Configuration</button>
+        <a href="{{ url_for('index') }}" class="btn">Cancel</a>
+    </div>
+</form>
+{% endblock %}

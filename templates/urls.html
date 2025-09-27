@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}URL Mappings - Chromium Multi-Monitor Kiosk{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>URL Mappings</h2>
+    <p>Configure which URLs are displayed on each monitor. You can use monitor names (as reported by xrandr) or index numbers.</p>
+    
+    <div style="background-color: #e8f4f8; padding: 1rem; border-radius: 4px; margin-bottom: 2rem;">
+        <h4>Examples:</h4>
+        <ul>
+            <li><strong>default</strong> - Fallback URL for all monitors</li>
+            <li><strong>DP-1, HDMI-1</strong> - Monitor names from xrandr</li>
+            <li><strong>index0, index1</strong> - Monitor by position (0=first, 1=second, etc.)</li>
+            <li><strong>URL options:</strong> Add ",norefresh" to disable auto-refresh for that monitor</li>
+        </ul>
+    </div>
+</div>
+
+<form method="POST" onsubmit="return processUrlForm()">
+    <div class="card">
+        <h2>Current URL Mappings</h2>
+        <div id="current-mappings">
+            {% if urls %}
+                {% for monitor, url in urls.items() %}
+                <div class="url-entry">
+                    <label>{{ monitor }}:</label>
+                    <input type="text" name="{{ monitor }}" value="{{ url }}" placeholder="https://example.com">
+                    <button type="button" class="btn remove-url-btn" onclick="removeUrlMapping(this)">×</button>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p>No URL mappings currently configured.</p>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Add New URL Mappings</h2>
+        <div id="url-mappings">
+            <!-- Dynamic URL entries will be added here -->
+        </div>
+        
+        <button type="button" class="btn add-url-btn" onclick="addUrlMapping()">Add URL Mapping</button>
+    </div>
+    
+    <div class="card">
+        <button type="submit" class="btn btn-success">Save URL Mappings</button>
+        <a href="{{ url_for('index') }}" class="btn">Cancel</a>
+    </div>
+</form>
+
+<div class="card">
+    <h2>Quick Setup Templates</h2>
+    <p>Click on a template to quickly set up common configurations:</p>
+    
+    <div class="grid">
+        <div>
+            <h3>Single Monitor</h3>
+            <button type="button" class="btn" onclick="applyTemplate('single')">Apply Template</button>
+            <small>Sets up a single default URL for all monitors.</small>
+        </div>
+        
+        <div>
+            <h3>Dual Monitor</h3>
+            <button type="button" class="btn" onclick="applyTemplate('dual')">Apply Template</button>
+            <small>Sets up index0 and index1 for two monitors.</small>
+        </div>
+        
+        <div>
+            <h3>Triple Monitor</h3>
+            <button type="button" class="btn" onclick="applyTemplate('triple')">Apply Template</button>
+            <small>Sets up index0, index1, and index2 for three monitors.</small>
+        </div>
+    </div>
+</div>
+
+<script>
+function applyTemplate(type) {
+    const container = document.getElementById('url-mappings');
+    container.innerHTML = ''; // Clear existing entries
+    
+    switch(type) {
+        case 'single':
+            addTemplateEntry('default', 'https://example.com');
+            break;
+        case 'dual':
+            addTemplateEntry('index0', 'https://dashboard1.example.com');
+            addTemplateEntry('index1', 'https://dashboard2.example.com');
+            break;
+        case 'triple':
+            addTemplateEntry('index0', 'https://dashboard1.example.com');
+            addTemplateEntry('index1', 'https://dashboard2.example.com');
+            addTemplateEntry('index2', 'https://dashboard3.example.com');
+            break;
+    }
+}
+
+function addTemplateEntry(monitor, url) {
+    const container = document.getElementById('url-mappings');
+    const newEntry = document.createElement('div');
+    newEntry.className = 'url-entry';
+    newEntry.innerHTML = `
+        <label>Monitor/Index:</label>
+        <input type="text" name="new_key_${Date.now()}" value="${monitor}">
+        <label>URL:</label>
+        <input type="text" name="new_url_${Date.now()}" value="${url}">
+        <button type="button" class="btn remove-url-btn" onclick="removeUrlMapping(this)">×</button>
+    `;
+    container.appendChild(newEntry);
+}
+
+function addUrlMapping() {
+    const container = document.getElementById('url-mappings');
+    const newEntry = document.createElement('div');
+    newEntry.className = 'url-entry';
+    newEntry.innerHTML = `
+        <label>Monitor/Index:</label>
+        <input type="text" name="new_key_${Date.now()}" placeholder="e.g., DP-1, HDMI-1, index0, default">
+        <label>URL:</label>
+        <input type="text" name="new_url_${Date.now()}" placeholder="https://example.com">
+        <button type="button" class="btn remove-url-btn" onclick="removeUrlMapping(this)">×</button>
+    `;
+    container.appendChild(newEntry);
+}
+
+function removeUrlMapping(button) {
+    button.parentElement.remove();
+}
+
+function processUrlForm() {
+    const entries = document.querySelectorAll('#url-mappings .url-entry');
+    entries.forEach(entry => {
+        const keyInput = entry.querySelector('input[name^="new_key_"]');
+        const urlInput = entry.querySelector('input[name^="new_url_"]');
+        
+        if (keyInput && urlInput && keyInput.value && urlInput.value) {
+            // Create a hidden input with the monitor name as the field name
+            const hiddenInput = document.createElement('input');
+            hiddenInput.type = 'hidden';
+            hiddenInput.name = keyInput.value;
+            hiddenInput.value = urlInput.value;
+            entry.appendChild(hiddenInput);
+        }
+    });
+    return true;
+}
+</script>
+{% endblock %}
