@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-# LXDE-angepasste Variante von startkiosk.sh
-# Ziel: gleiche Funktionalität wie das Original-Skript, aber ohne GNOME/GSettings-Abhängigkeit.
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 source "$SCRIPT_DIR/config.sh"
 
@@ -107,7 +104,7 @@ check_prereqs() {
   fi
 }
 
-# Logging functions (kopiert aus dem Original)
+# Logging functions
 _COLOR_RESET="\e[0m"
 _COLOR_INFO="\e[32m"
 _COLOR_WARN="\e[33m"
@@ -417,7 +414,7 @@ if [ -f "$PREFS" ]; then
   sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/'  "$PREFS" 2>>"$LOGFILE" || true
 fi
 
-# URLs einlesen (kopiert unverändert)
+# URLs einlesen
 declare -A URL_BY_NAME URL_BY_INDEX REFRESH_BY_NAME REFRESH_BY_INDEX
 declare -a ALL_URLS
 if [ "$PAGE_REFRESH_ENABLED" = true ]; then
